@@ -24,79 +24,131 @@ import umap
 import matplotlib.pyplot as plt
 import torch.optim as optim
 
+import os
+import matplotlib.pyplot as plt
+import numpy as np
+import os
+import numpy as np
+import pickle
+import matplotlib.pyplot as plt
+import umap
+import torch
+from bokeh.plotting import figure, show, output_file, save
+from bokeh.models import HoverTool, ColumnDataSource
+import pandas as pd
+from torch.utils.data import Dataset
+from PIL import Image
+import base64
+import io
+from io import BytesIO
+
+import numpy as np
+import pyqtgraph as pg
+from pyqtgraph.Qt import QtGui
+from matplotlib import cm
+from PyQt5.QtCore import Qt
+from torch.utils.data import DataLoader, TensorDataset
+import torch.nn as nn
+import torch.nn.functional as F 
+import sys
+sys.path.append('/home/akapoor/Dropbox (University of Oregon)/Kapoor_Ananya/01_Projects/01_b_Canary_SSL/TweetyCLR/')
+from util import MetricMonitor, DataPlotter, SupConLoss
+import torch.optim as optim
+from util import Tweetyclr, TwoCropTransform, Custom_Contrastive_Dataset
+
+# class Encoder(nn.Module):
+#     def __init__(self):
+#         super().__init__()
+#         self.conv1 = nn.Conv2d(1, 8, 3,1,padding=1) 
+#         self.conv2 = nn.Conv2d(8, 8, 3,2,padding=1) 
+#         self.conv3 = nn.Conv2d(8, 16,3,1,padding=1) 
+#         self.conv4 = nn.Conv2d(16,16,3,2,padding=1) 
+#         self.conv5 = nn.Conv2d(16,24,3,1,padding=1) 
+#         self.conv6 = nn.Conv2d(24,24,3,2,padding=1) 
+#         self.conv7 = nn.Conv2d(24,32,3,1,padding=1) 
+#         self.conv8 = nn.Conv2d(32,24,3,2,padding=1)
+#         self.conv9 = nn.Conv2d(24,24,3,1,padding=1)
+#         self.conv10 = nn.Conv2d(24,16,3,2,padding=1)
+#         self.conv11 = nn.Conv2d(16, 8, 3, 1, padding = 1)
+#         self.conv12 = nn.Conv2d(8, 8, 3, 2, padding = 1)
+        
+        
+#         self.bn1 = nn.BatchNorm2d(1) 
+#         self.bn2 = nn.BatchNorm2d(8) 
+#         self.bn3 = nn.BatchNorm2d(8) 
+#         self.bn4 = nn.BatchNorm2d(16) 
+#         self.bn5 = nn.BatchNorm2d(16) 
+#         self.bn6 = nn.BatchNorm2d(24) 
+#         self.bn7 = nn.BatchNorm2d(24)
+#         self.bn8 = nn.BatchNorm2d(32)
+#         self.bn9 = nn.BatchNorm2d(24)
+#         self.bn10 = nn.BatchNorm2d(24)
+#         self.bn11 = nn.BatchNorm2d(16)
+#         self.bn12 = nn.BatchNorm2d(8)
+
+#         self.relu = nn.ReLU()       
+#         self.dropout = nn.Dropout2d(
+#         )
+#         # self.fc = nn.Linear(320, 32)
+#         # self._to_linear = 1280
+#         # self._to_linear = 320
+#         self._to_linear = 320
+        
+#     def forward(self, x):
+         
+#         # x = F.relu(self.dropout(self.conv1(self.bn1(x))))
+#         # x = F.relu(self.conv2(self.bn2(x))) 
+#         # x = F.relu(self.dropout(self.conv3(self.bn3(x))))
+#         # x = F.relu(self.conv4(self.bn4(x))) 
+#         # x = F.relu(self.dropout(self.conv5(self.bn5(x))))
+#         # x = F.relu(self.conv6(self.bn6(x))) 
+#         # x = F.relu(self.dropout(self.conv7(self.bn7(x))))
+#         # x = F.relu(self.conv8(self.bn8(x)))
+#         # x = F.relu(self.dropout(self.conv9(self.bn9(x))))
+#         # x = F.relu(self.conv10(self.bn10(x)))
+        
+#         x = F.relu(self.conv1(self.bn1(x)))
+#         x = F.relu(self.conv2(self.bn2(x))) 
+#         x = F.relu(self.conv3(self.bn3(x)))
+#         x = F.relu(self.conv4(self.bn4(x))) 
+#         x = F.relu(self.conv5(self.bn5(x)))
+#         x = F.relu(self.conv6(self.bn6(x))) 
+#         x = F.relu(self.conv7(self.bn7(x)))
+#         x = F.relu(self.conv8(self.bn8(x)))
+#         x = F.relu(self.conv9(self.bn9(x)))
+#         x = F.relu(self.conv10(self.bn10(x)))
+#         x = F.relu(self.conv11(self.bn11(x)))
+#         x = F.relu(self.conv12(self.bn12(x)))
+
+#         x = x.view(-1, 48)
+#         # x = x.view(-1, 320)
+#         # x = self.fc(x)
+#         # x = self.relu(x)
+#         # x = x.view(-1, 32)
+#         # x = x.view(-1, 1280) #Window size = 500
+        
+#         return x
+
 class Encoder(nn.Module):
     def __init__(self):
         super().__init__()
-        self.conv1 = nn.Conv2d(1, 8, 3,1,padding=1) 
-        self.conv2 = nn.Conv2d(8, 8, 3,2,padding=1) 
-        self.conv3 = nn.Conv2d(8, 16,3,1,padding=1) 
-        self.conv4 = nn.Conv2d(16,16,3,2,padding=1) 
-        self.conv5 = nn.Conv2d(16,24,3,1,padding=1) 
-        self.conv6 = nn.Conv2d(24,24,3,2,padding=1) 
-        self.conv7 = nn.Conv2d(24,32,3,1,padding=1) 
-        self.conv8 = nn.Conv2d(32,24,3,2,padding=1)
-        self.conv9 = nn.Conv2d(24,24,3,1,padding=1)
-        self.conv10 = nn.Conv2d(24,16,3,2,padding=1)
-        self.conv11 = nn.Conv2d(16, 8, 3, 1, padding = 1)
-        self.conv12 = nn.Conv2d(8, 8, 3, 2, padding = 1)
+        self.conv1 = nn.Conv2d(in_channels=1, out_channels=32, kernel_size=(5, 5), stride=1, padding=1)
+        self.pool1 = nn.MaxPool2d(kernel_size=(8, 1), stride=(8, 1))
+        self.conv2 = nn.Conv2d(in_channels=32, out_channels=64, kernel_size=(5, 5), stride=1, padding=1)
+        self.pool2 = nn.MaxPool2d(kernel_size=(8, 1), stride=(8, 1))
+        self.relu = nn.ReLU()
+        self.fc = nn.Linear(9408, 1000)
         
         
-        self.bn1 = nn.BatchNorm2d(1) 
-        self.bn2 = nn.BatchNorm2d(8) 
-        self.bn3 = nn.BatchNorm2d(8) 
-        self.bn4 = nn.BatchNorm2d(16) 
-        self.bn5 = nn.BatchNorm2d(16) 
-        self.bn6 = nn.BatchNorm2d(24) 
-        self.bn7 = nn.BatchNorm2d(24)
-        self.bn8 = nn.BatchNorm2d(32)
-        self.bn9 = nn.BatchNorm2d(24)
-        self.bn10 = nn.BatchNorm2d(24)
-        self.bn11 = nn.BatchNorm2d(16)
-        self.bn12 = nn.BatchNorm2d(8)
-
-        self.relu = nn.ReLU()       
-        self.dropout = nn.Dropout2d(
-        )
-        # self.fc = nn.Linear(320, 32)
-        # self._to_linear = 1280
-        # self._to_linear = 320
-        self._to_linear = 320
         
     def forward(self, x):
-         
-        # x = F.relu(self.dropout(self.conv1(self.bn1(x))))
-        # x = F.relu(self.conv2(self.bn2(x))) 
-        # x = F.relu(self.dropout(self.conv3(self.bn3(x))))
-        # x = F.relu(self.conv4(self.bn4(x))) 
-        # x = F.relu(self.dropout(self.conv5(self.bn5(x))))
-        # x = F.relu(self.conv6(self.bn6(x))) 
-        # x = F.relu(self.dropout(self.conv7(self.bn7(x))))
-        # x = F.relu(self.conv8(self.bn8(x)))
-        # x = F.relu(self.dropout(self.conv9(self.bn9(x))))
-        # x = F.relu(self.conv10(self.bn10(x)))
-        
-        x = F.relu(self.conv1(self.bn1(x)))
-        x = F.relu(self.conv2(self.bn2(x))) 
-        x = F.relu(self.conv3(self.bn3(x)))
-        x = F.relu(self.conv4(self.bn4(x))) 
-        x = F.relu(self.conv5(self.bn5(x)))
-        x = F.relu(self.conv6(self.bn6(x))) 
-        x = F.relu(self.conv7(self.bn7(x)))
-        x = F.relu(self.conv8(self.bn8(x)))
-        x = F.relu(self.conv9(self.bn9(x)))
-        x = F.relu(self.conv10(self.bn10(x)))
-        x = F.relu(self.conv11(self.bn11(x)))
-        x = F.relu(self.conv12(self.bn12(x)))
-
-        x = x.view(-1, 48)
-        # x = x.view(-1, 320)
+        x = self.relu(self.conv1(x))
+        x = self.pool1(x)
+        x = self.relu(self.conv2(x))
+        x = self.pool2(x)
+        x = x.view(x.size(0), -1)  # Flatten the tensor for the fully connected layer
         # x = self.fc(x)
-        # x = self.relu(x)
-        # x = x.view(-1, 32)
-        # x = x.view(-1, 1280) #Window size = 500
-        
-        return x
-
+        return x 
 
 def pretraining(epoch, model, contrastive_loader, optimizer, criterion, method='SimCLR'):
     "Contrastive pre-training over an epoch. Adapted from XX"
@@ -197,7 +249,7 @@ directory = bird_dir+ 'Python_Files'
 analysis_path = '/home/akapoor/Dropbox (University of Oregon)/Kapoor_Ananya/01_Projects/01_b_Canary_SSL/Canary_SSL_Repo/'
 
 # Parameters we set
-num_spec = 20
+num_spec = 100
 window_size = 100
 stride = 10
 
@@ -243,11 +295,12 @@ simple_tweetyclr.first_time_analysis()
 
 # Let's do raw umap
 
-reducer = umap.UMAP(metric = 'cosine', random_state=295)
+# reducer = umap.UMAP(metric = 'cosine', random_state=295)
+reducer = umap.UMAP(metric = 'cosine')
 
-embed = reducer.fit_transform(simple_tweetyclr.stacked_windows)
+# embed = reducer.fit_transform(simple_tweetyclr.stacked_windows)
 
-# embed = np.load('/home/akapoor/Desktop/embed.npy')
+embed = np.load('/home/akapoor/Desktop/embed.npy')
 
 plt.figure()
 plt.scatter(embed[:,0], embed[:,1], s = 10, c = simple_tweetyclr.mean_colors_per_minispec)
@@ -259,7 +312,9 @@ plt.show()
 
 # I will define my TweetyCLR set as follows: xlim = (13, 18), ylim = (2, 8)
     
-hard_indices = np.where((embed[:,0]>=-3.35)&(embed[:,0]<=3.35) & (embed[:,1]>=11) & (embed[:,1]<=17))[0]
+# hard_indices = np.where((embed[:,0]>=-3.35)&(embed[:,0]<=3.35) & (embed[:,1]>=11) & (embed[:,1]<=17))[0]
+
+hard_indices = np.where((embed[:,0]>=7.5)&(embed[:,0]<=11.5) & (embed[:,1]>=5.23) & (embed[:,1]<=12))[0]
 
 stacked_windows_train = simple_tweetyclr.stacked_windows[hard_indices,:].reshape(hard_indices.shape[0], 1, simple_tweetyclr.time_dim, simple_tweetyclr.freq_dim)
 
@@ -272,6 +327,23 @@ total_dataloader = DataLoader(total_dataset, batch_size=batch_size , shuffle=Fal
 # # Hand select negative samples
 # =============================================================================
 
+# Some negative samples need to be hard. I will do this by for each sample in 
+# the bounding box, selecting spectrogram slices within the bounding box that 
+# have a low cosine similarity. 
+
+from sklearn.metrics.pairwise import cosine_similarity
+
+cosine_sim = cosine_similarity(embed[hard_indices,:])
+
+# Rewrite the loop as a list comprehension
+n_smallest = 10  # Number of smallest elements to find for each row
+
+# List comprehension to find the indices of the 10 smallest values for each row
+smallest_indices_per_row = [np.concatenate((np.array([hard_indices[i]]),
+    np.argpartition(cosine_sim[i,:], n_smallest)[:n_smallest][np.argsort(cosine_sim[i,:][np.argpartition(cosine_sim[i,:], n_smallest)[:n_smallest]])]))
+    for i in np.arange(len(hard_indices))
+]
+
 total_indices = np.arange(data_for_analysis.shape[0])
 
 easy_indices = np.setdiff1d(total_indices, hard_indices)
@@ -279,9 +351,15 @@ easy_indices = np.setdiff1d(total_indices, hard_indices)
 batch_indices_list = []
 batch_array_list = []
 
-all_sampled_indices = [np.concatenate((np.array([hard_indices[i]]), np.random.choice(easy_indices, size=20, replace=False))) for i in range(len(hard_indices))]
+all_sampled_indices = [np.random.choice(easy_indices, size=1, replace=False) for i in range(len(hard_indices))]
 
-training_indices = np.stack(all_sampled_indices)
+concatenated_indices = [
+    np.concatenate([smallest_indices_per_row[i], all_sampled_indices[i]])
+    for i in range(len(smallest_indices_per_row))
+]
+
+
+training_indices = np.stack(concatenated_indices)
 training_indices = training_indices.reshape(training_indices.shape[0]*training_indices.shape[1])
 
 stacked_windows_train = data_for_analysis[training_indices,:]
@@ -343,7 +421,7 @@ custom_transformation = TwoCropTransform(augmentation_object)
 new_contrastive_dataset = Custom_Contrastive_Dataset(stacked_windows_train, torch.tensor(training_indices), custom_transformation)
 
 # # DataLoader remains the same
-batch_size = 21
+batch_size = 12
 contrastive_loader = torch.utils.data.DataLoader(new_contrastive_dataset, batch_size=batch_size, shuffle=False)
 
 # a = next(iter(contrastive_loader))
@@ -426,10 +504,17 @@ model_rep_list_trained = []
 train_dataset = TensorDataset(torch.tensor(stacked_windows_train.reshape(stacked_windows_train.shape[0], 1, simple_tweetyclr.time_dim, simple_tweetyclr.freq_dim)))
 train_dataloader = DataLoader(train_dataset, batch_size=batch_size , shuffle=False)
 
+
+hard_stacked_windows = simple_tweetyclr.stacked_windows[hard_indices,:]
+
+hard_dataset = TensorDataset(torch.tensor(hard_stacked_windows.reshape(hard_stacked_windows.shape[0], 1, simple_tweetyclr.time_dim, simple_tweetyclr.freq_dim)))
+hard_dataloader = DataLoader(hard_dataset, batch_size=batch_size , shuffle=False)
+
+
 # Iterate over the DataLoaders
 with torch.no_grad():  # Disable gradient computation for efficiency
     # for data_loader in dataloader_list:
-    for batch_idx, (data) in enumerate(train_dataloader):
+    for batch_idx, (data) in enumerate(hard_dataloader):
         data = data[0].to(torch.float32)
         features = model(data)
         model_rep_list_trained.append(features)
@@ -445,11 +530,11 @@ std = model_rep_trained.std(dim=1, keepdim=True, unbiased=False)
 
 trained_rep_umap = reducer.fit_transform(model_rep_trained.clone().detach().numpy())
 
-mean_colors_per_minispec_train = simple_tweetyclr.mean_colors_per_minispec[training_indices,:]
+mean_colors_per_minispec_train = simple_tweetyclr.mean_colors_per_minispec[hard_indices,:]
 
 plt.figure()
 plt.title("Data UMAP Representation Through the Trained Model")
-plt.scatter(trained_rep_umap[np.arange(0, stacked_windows_train.shape[0], 4),0], trained_rep_umap[np.arange(0, stacked_windows_train.shape[0], 4),1], s = 10, c = mean_colors_per_minispec_train[np.arange(0, stacked_windows_train.shape[0], 4),:])
+plt.scatter(trained_rep_umap[:,0], trained_rep_umap[:,1], c = mean_colors_per_minispec_train)
 # plt.savefig(f'{simple_tweetyclr.folder_name}/UMAP_of_trained_model.png')
 plt.show()
 
@@ -459,5 +544,87 @@ plt.plot(contrastive_loss)
 plt.xlabel("Epoch")
 plt.ylabel("Loss")
 plt.show()
+
+
+def embeddable_image(data):
+    data = (data.squeeze() * 255).astype(np.uint8)
+    # convert to uint8
+    data = np.uint8(data)
+    image = Image.fromarray(data)
+    image = image.convert('RGB')
+    # show PIL image
+    im_file = BytesIO()
+    img_save = image.save(im_file, format='PNG')
+    im_bytes = im_file.getvalue()
+
+    img_str = "data:image/png;base64," + base64.b64encode(im_bytes).decode()
+    return img_str
+
+
+def get_images(list_of_images):
+    return list(map(embeddable_image, list_of_images))
+
+
+list_of_images = []
+for batch_idx, (data) in enumerate(hard_dataloader):
+    data = data[0]
+    
+    for image in data:
+        list_of_images.append(image)
+        
+list_of_images = [tensor.numpy() for tensor in list_of_images]
+
+embeddable_images = get_images(list_of_images)
+
+def plot_UMAP_embedding(embedding, mean_colors_per_minispec, image_paths, filepath_name, saveflag = False):
+
+    # Specify an HTML file to save the Bokeh image to.
+    # output_file(filename=f'{self.folder_name}Plots/{filename_val}.html')
+    output_file(filename = f'{filepath_name}')
+
+    # Convert the UMAP embedding to a Pandas Dataframe
+    spec_df = pd.DataFrame(embedding, columns=('x', 'y'))
+
+
+    # Create a ColumnDataSource from the data. This contains the UMAP embedding components and the mean colors per mini-spectrogram
+    source = ColumnDataSource(data=dict(x = embedding[:,0], y = embedding[:,1], colors=mean_colors_per_minispec))
+
+
+    # Create a figure and add a scatter plot
+    p = figure(width=800, height=600, tools=('pan, box_zoom, hover, reset'))
+    p.scatter(x='x', y='y', size = 7, color = 'colors', source=source)
+
+    hover = p.select(dict(type=HoverTool))
+    hover.tooltips = """
+        <div>
+            <h3>@x, @y</h3>
+            <div>
+                <img
+                    src="@image" height="100" alt="@image" width="100"
+                    style="float: left; margin: 0px 15px 15px 0px;"
+                    border="2"
+                ></img>
+            </div>
+        </div>
+    """
+
+    p.add_tools(HoverTool(tooltips="""
+    """))
+    
+    # Set the image path for each data point
+    source.data['image'] = image_paths
+    # source.data['image'] = []
+    # for i in np.arange(spec_df.shape[0]):
+    #     source.data['image'].append(f'{self.folder_name}/Plots/Window_Plots/Window_{i}.png')
+
+
+    save(p)
+    show(p)
+
+
+
+plot_UMAP_embedding(trained_rep_umap,  mean_colors_per_minispec_train, embeddable_images, '/home/akapoor/Desktop/UMAP_of_trained_rep.html', saveflag = True)
+
+
 
 
