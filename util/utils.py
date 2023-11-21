@@ -22,10 +22,15 @@ import io
 from io import BytesIO
 
 import numpy as np
-import pyqtgraph as pg
-from pyqtgraph.Qt import QtGui
-from matplotlib import cm
-from PyQt5.QtCore import Qt
+# import pyqtgraph as pg
+# from pyqtgraph.Qt import QtGui
+# from matplotlib import cm
+# from PyQt5.QtCore import Qt
+from sklearn.metrics.pairwise import cosine_similarity
+
+from sklearn.cluster import KMeans
+from sklearn.metrics import silhouette_score
+from sklearn.model_selection import KFold
 
 
 class Tweetyclr:
@@ -180,6 +185,7 @@ class Tweetyclr:
         # convert to uint8
         data = np.uint8(data)
         image = Image.fromarray(data)
+        image = image.rotate(90, expand=True) 
         image = image.convert('RGB')
         # show PIL image
         im_file = BytesIO()
@@ -194,12 +200,12 @@ class Tweetyclr:
         return list(map(self.embeddable_image, list_of_images))
 
 
-    def compute_UMAP_decomp(self, zscored):
-        # Perform a UMAP embedding on the dataset of mini-spectrograms
-        reducer = umap.UMAP()
-        embedding = reducer.fit_transform(zscored)
+    # def compute_UMAP_decomp(self, zscored):
+    #     # Perform a UMAP embedding on the dataset of mini-spectrograms
+    #     reducer = umap.UMAP()
+    #     embedding = reducer.fit_transform(zscored)
 
-        return embedding
+    #     return embedding
 
     def plot_UMAP_embedding(self, embedding, mean_colors_per_minispec, image_paths, filepath_name, saveflag = False):
 
@@ -246,62 +252,164 @@ class Tweetyclr:
         save(p)
         show(p)
 
-    def find_slice_actual_labels(self, stacked_labels_for_window):
-        al = []
-        for i in np.arange(stacked_labels_for_window.shape[0]):
-            arr = stacked_labels_for_window[i,:]
-            unique_elements, counts = np.unique(arr, return_counts=True)
-            # print(unique_elements)
-            # print(counts)
-            sorted_indices = np.argsort(-counts)
-            val = unique_elements[sorted_indices[0]]
-            if val == 0:
-                if unique_elements.shape[0]>1:
-                    val = unique_elements[sorted_indices[1]]
-            al.append(val)
+    # def find_slice_actual_labels(self, stacked_labels_for_window):
+    #     al = []
+    #     for i in np.arange(stacked_labels_for_window.shape[0]):
+    #         arr = stacked_labels_for_window[i,:]
+    #         unique_elements, counts = np.unique(arr, return_counts=True)
+    #         # print(unique_elements)
+    #         # print(counts)
+    #         sorted_indices = np.argsort(-counts)
+    #         val = unique_elements[sorted_indices[0]]
+    #         if val == 0:
+    #             if unique_elements.shape[0]>1:
+    #                 val = unique_elements[sorted_indices[1]]
+    #         al.append(val)
 
-        actual_labels = np.array(al)
+    #     actual_labels = np.array(al)
         
-        self.actual_labels = actual_labels
+    #     self.actual_labels = actual_labels
 
-    def shuffling(self, shuffled_indices = None):
+    # def shuffling(self, shuffled_indices = None):
         
-        if shuffled_indices is None:
-            shuffled_indices = np.random.permutation(self.stacked_windows.shape[0])
+    #     if shuffled_indices is None:
+    #         shuffled_indices = np.random.permutation(self.stacked_windows.shape[0])
                     
-        self.shuffled_indices = shuffled_indices
+    #     self.shuffled_indices = shuffled_indices
         
         
-    def train_test_split(self, dataset, train_split_perc, shuffled_indices):
+    def train_test_split(self, dataset, train_split_perc, hard_indices):
         ''' 
         The following is the procedure I want to do for the train_test_split.
         
         '''
         
-        # I want to make training indices to be the first 80% of the shuffled data
-        split_point = int(train_split_perc*dataset.shape[0])
-        
-        anchor_indices = shuffled_indices[:split_point]
+        split_point = int(train_split_perc*hard_indices.shape[0])
+
+        training_indices = hard_indices[:split_point]
+        testing_indices = hard_indices[split_point:]
 
         # Shuffle array1 using the shuffled indices
-        stacked_windows_for_analysis_modeling = dataset[shuffled_indices,:]
+        stacked_windows_for_analysis_modeling = dataset[hard_indices,:]
+
         # Shuffle array2 using the same shuffled indices
-        stacked_labels_for_analysis_modeling= self.stacked_labels_for_window[shuffled_indices,:]
-        mean_colors_per_minispec_for_analysis_modeling = self.mean_colors_per_minispec[shuffled_indices, :]
-        
-        stacked_windows_train = torch.tensor(dataset[anchor_indices,:])
+        stacked_labels_for_analysis_modeling= self.stacked_labels_for_window[hard_indices,:]
+        mean_colors_per_minispec_for_analysis_modeling = self.mean_colors_per_minispec[hard_indices, :]
+
+        # Training dataset
+
+        stacked_windows_train = torch.tensor(dataset[training_indices,:])
         stacked_windows_train = stacked_windows_train.reshape(stacked_windows_train.shape[0], 1, self.time_dim, self.freq_dim)
-        anchor_indices = anchor_indices
         # self.train_indices = np.array(training_indices)
+
+        mean_colors_per_minispec_train = self.mean_colors_per_minispec[training_indices,:]
+        stacked_labels_train = self.stacked_labels_for_window[training_indices,:]
+
+        # Testing dataset
+
+        stacked_windows_test = torch.tensor(dataset[testing_indices,:])
+        stacked_windows_test = stacked_windows_test.reshape(stacked_windows_test.shape[0], 1, self.time_dim, self.freq_dim)
+        # self.train_indices = np.array(training_indices)
+
+        mean_colors_per_minispec_test = self.mean_colors_per_minispec[testing_indices,:]
+        stacked_labels_test = self.stacked_labels_for_window[testing_indices,:]
         
-        mean_colors_per_minispec_train = self.mean_colors_per_minispec[anchor_indices,:]
-        stacked_labels_train = self.stacked_labels_for_window[anchor_indices,:]
         
+        return stacked_windows_train, stacked_labels_train, mean_colors_per_minispec_train, training_indices, stacked_windows_test, stacked_labels_test, mean_colors_per_minispec_test, testing_indices
+    
+    
+    
+    def negative_sample_selection(self, data_for_analysis, indices_of_interest):
         
-        anchor_train_indices = anchor_indices
+        # Hard negatives first: within the bound box region, let's sample k spectrogram slices that have the lowest cosine similarity score to each anchor slice
         
-        return stacked_windows_train, stacked_labels_train, mean_colors_per_minispec_train, anchor_indices 
+        cosine_sim = cosine_similarity(self.umap_embed_init[indices_of_interest,:])
+
+        # Rewrite the loop as a list comprehension
+        # List comprehension to find the indices of the 10 smallest values for each row
+        smallest_indices_per_row = [np.concatenate((
+            np.array([self.hard_indices[i]]),
+            np.array([self.hard_indices[int(np.argpartition(cosine_sim[i, :], self.hard_negatives)[:self.hard_negatives][np.argsort(cosine_sim[i, :][np.argpartition(cosine_sim[i, :], self.hard_negatives)[:self.hard_negatives]])])]])
+        )) for i in np.arange(len(indices_of_interest))
+        ]
         
+        # Easy negatives: randomly sample p points from outside the bound box region
+        total_indices = np.arange(data_for_analysis.shape[0])
+
+        easy_indices = np.setdiff1d(total_indices, self.hard_indices)
+
+        batch_indices_list = []
+        batch_array_list = []
+
+        all_sampled_indices = [np.random.choice(easy_indices, size=self.easy_negatives, replace=False) for i in range(len(self.hard_indices))]
+        
+        # Now combine the easy negatives and hard negatives together 
+        concatenated_indices = [
+            np.concatenate([smallest_indices_per_row[i], all_sampled_indices[i]])
+            for i in range(len(smallest_indices_per_row))
+        ]
+        
+        total_indices = np.stack(concatenated_indices)
+        total_indices = total_indices.reshape(total_indices.shape[0]*total_indices.shape[1])
+
+        dataset = data_for_analysis[total_indices,:]
+        dataset = torch.tensor(dataset.reshape(dataset.shape[0], 1, self.time_dim, self.freq_dim))
+        
+        return total_indices, dataset
+    
+    
+    def downstream_clustering(self, X, n_splits, cluster_range):
+        
+        # K-Fold cross-validator
+        kf = KFold(n_splits=n_splits, shuffle=True, random_state=42)
+
+        # Dictionary to store the average silhouette scores for each number of clusters
+        average_silhouette_scores = {}
+
+        # Evaluate K-Means over the range of cluster numbers
+        for n_clusters in cluster_range:
+            silhouette_scores = []
+
+            for train_index, test_index in kf.split(X):
+                # Split data into training and test sets
+                X_train, X_test = X[train_index], X[test_index]
+
+                # Create and fit KMeans model
+                kmeans = KMeans(n_clusters=n_clusters, random_state=42)
+                kmeans.fit(X_train)
+
+                # Predict cluster labels for test data
+                cluster_labels = kmeans.predict(X_test)
+
+                # Calculate silhouette score and append to list
+                score = silhouette_score(X_test, cluster_labels)
+                silhouette_scores.append(score)
+
+            # Average silhouette score for this number of clusters
+            average_silhouette_scores[n_clusters] = np.mean(silhouette_scores)
+
+        # Print average silhouette scores for each number of clusters
+        max_score = 0 
+        optimal_cluster_number = 0
+        for n_clusters, score in average_silhouette_scores.items():
+            print(f'Average Silhouette Score for {n_clusters} clusters: {score}')
+            if score>max_score:
+                max_score = score
+                optimal_cluster_number = n_clusters
+                
+        kmeans = KMeans(n_clusters=optimal_cluster_number, random_state=42)
+        kmeans.fit(X)
+        # Predict cluster labels for test data
+        cluster_labels = kmeans.predict(X)
+
+        # Plotting the clusters
+        plt.figure()
+        plt.scatter(X[:,0], X[:,1], c=cluster_labels, cmap='viridis')
+        plt.title('K-Means Clustering on UMAP of Model Representation')
+        plt.xlabel('Feature 1')
+        plt.ylabel('Feature 2')
+        plt.show()
+
         
 class Temporal_Augmentation:
     
@@ -370,140 +478,3 @@ class TwoCropTransform:
         # Get the two augmentations from jawn
         aug = self.transform(x)
         return [aug[i, :, :, :] for i in range(aug.shape[0])]
-    
-
-class DataPlotter:
-    def __init__(self):
-
-
-        # Setup main window/layout
-        pg.setConfigOptions(imageAxisOrder='row-major')
-        self.app = pg.mkQApp()
-
-
-        # Instantiate window
-        self.win = pg.GraphicsLayoutWidget()
-        self.win.setWindowTitle('Embedding Analysis')
-
-        # Behave plot
-        self.behavePlot = self.win.addPlot()
-
-
-        # Define bottom plot 
-        self.win.nextRow()
-        self.embPlot = self.win.addPlot()
-
-
-        self.setupPlot()
-        
-
-    def setupPlot(self):
-
-        # Setup behave plot for img
-        self.imgBehave = pg.ImageItem()
-        self.behavePlot.addItem(self.imgBehave)
-        self.behavePlot.hideAxis('left')
-        # self.behavePlot.hideAxis('bottom')
-
-
-        # Setup emb plot
-        self.embPlot.hideAxis('left')
-        self.embPlot.hideAxis('bottom')
-
-    def clear_plots(self):
-        self.embPlot.clear()
-        self.behavePlot.clear()
-
-
-    # Change to general one day?
-    def set_behavioral_image(self,image_array):
-
-        self.behave_array = image_array
-        self.imgBehave.setImage(self.behave_array)
-     
-
-    def update(self):
-        rgn = self.region.getRegion()
-
-        findIndices = np.where(np.logical_and(self.startEndTimes[0,:] > rgn[0], self.startEndTimes[1,:] < rgn[1]))[0]
-    
-        self.newScatter.setData(pos = self.emb[findIndices,:])
-
-
-
-        self.embPlot.setXRange(np.min(self.emb[:,0]) - 1, np.max(self.emb[:,0] + 1), padding=0)
-        self.embPlot.setYRange(np.min(self.emb[:,1]) - 1, np.max(self.emb[:,1] + 1), padding=0)
-
-
-
-
-
-
-    def accept_embedding(self,embedding,startEndTimes):
-
-        self.emb = embedding
-        self.startEndTimes = startEndTimes
-
-
-        self.cmap = cm.get_cmap('hsv')
-        norm_times = np.arange(self.emb.shape[0])/self.emb.shape[0]
-        colors = self.cmap(norm_times) * 255
-        self.defaultColors = colors.copy()
-        self.scatter = pg.ScatterPlotItem(pos=embedding, size=5, brush=colors)
-        self.embPlot.addItem(self.scatter)
-        
-        self.newScatter = pg.ScatterPlotItem(pos=embedding[0:10,:], size=10, brush=pg.mkBrush(255, 255, 255, 200))
-        self.embPlot.addItem(self.newScatter)
-
-
-        # Scale imgBehave 
-        height,width = self.behave_array.shape
-
-        x_start, x_end, y_start, y_end = 0, self.startEndTimes[1,-1], 0, height
-        pos = [x_start, y_start]
-        scale = [float(x_end - x_start) / width, float(y_end - y_start) / height]
-
-        self.imgBehave.setPos(*pos)
-        tr = QtGui.QTransform()
-        self.imgBehave.setTransform(tr.scale(scale[0], scale[1]))
-        self.behavePlot.getViewBox().setLimits(yMin=y_start, yMax=y_end)
-        self.behavePlot.getViewBox().setLimits(xMin=x_start, xMax=x_end)
-
-        print(self.startEndTimes)
-        self.region = pg.LinearRegionItem(values=(0, self.startEndTimes[0,-1] / 10))
-        self.region.setZValue(10)
-
-        
-        self.region.sigRegionChanged.connect(self.update)
-
-        self.behavePlot.addItem(self.region)
-
-
-        # consider where 
-
-        self.embPlot.setXRange(np.min(self.emb[:,0]) - 1, np.max(self.emb[:,0] + 1), padding=0)
-        self.embPlot.setYRange(np.min(self.emb[:,1]) - 1, np.max(self.emb[:,1] + 1), padding=0)
-
-
-
-
-    def plot_file(self,A):
-
-        self.clear_plots()
-        self.setupPlot()
-
-        # A = np.load(filePath)
-
-        self.startEndTimes = A['embStartEnd']
-        self.set_behavioral_image(A['behavioralArr'])
-
-        # feed it (N by 2) embedding and length N list of times associated with each point
-        self.accept_embedding(A['embVals'],A['embStartEnd'])
-
-
-
-    def show(self):
-        self.win.show()
-        self.app.exec_()
-
-
