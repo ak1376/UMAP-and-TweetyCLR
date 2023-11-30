@@ -281,6 +281,7 @@ class Tweetyclr:
     def train_test_split(self, dataset, train_split_perc, hard_indices):
         ''' 
         The following is the procedure I want to do for the train_test_split.
+        This function creates the training and testing anchor indices 
         
         '''
         
@@ -319,7 +320,7 @@ class Tweetyclr:
     
     
     
-    def negative_sample_selection(self, data_for_analysis, indices_of_interest):
+    def negative_sample_selection(self, data_for_analysis, indices_of_interest, easy_negative_indices_to_exclude):
         
         # Hard negatives first: within the bound box region, let's sample k spectrogram slices that have the lowest cosine similarity score to each anchor slice
         
@@ -328,15 +329,23 @@ class Tweetyclr:
         # Rewrite the loop as a list comprehension
         # List comprehension to find the indices of the 10 smallest values for each row
         smallest_indices_per_row = [np.concatenate((
-            np.array([self.hard_indices[i]]),
-            np.array([self.hard_indices[int(np.argpartition(cosine_sim[i, :], self.hard_negatives)[:self.hard_negatives][np.argsort(cosine_sim[i, :][np.argpartition(cosine_sim[i, :], self.hard_negatives)[:self.hard_negatives]])])]])
+            np.array([indices_of_interest[i]]),
+            np.array([indices_of_interest[int(np.argpartition(cosine_sim[i, :], self.hard_negatives)[:self.hard_negatives][np.argsort(cosine_sim[i, :][np.argpartition(cosine_sim[i, :], self.hard_negatives)[:self.hard_negatives]])])]])
         )) for i in np.arange(len(indices_of_interest))
         ]
         
-        # Easy negatives: randomly sample p points from outside the bound box region
+        # Easy negatives: randomly sample p points from outside the bound box 
+        # region.
+        
+        # For the testing dataset, I want to have easy negatives that are not
+        # in common with the easy negatives from training. Therefore I have 
+        # introduced "easy_negative_indices_to_exclude". 
+        
         total_indices = np.arange(data_for_analysis.shape[0])
-
         easy_indices = np.setdiff1d(total_indices, self.hard_indices)
+
+        if easy_negative_indices_to_exclude is not None:
+            easy_indices = np.setdiff1d(easy_indices, np.intersect1d(easy_indices, easy_negative_indices_to_exclude)) # For the testing dataset, easy_negative_indices_to_exclude will be the easy negative indices for the training dataset
 
         batch_indices_list = []
         batch_array_list = []

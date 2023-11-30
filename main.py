@@ -20,53 +20,8 @@ from torch.utils.data import DataLoader, TensorDataset
 import umap
 import matplotlib.pyplot as plt
 import torch.optim as optim
-
-import numpy as np
-import torch
-import sys
-sys.path.append('/home/akapoor/Dropbox (University of Oregon)/Kapoor_Ananya/01_Projects/01_b_Canary_SSL/TweetyCLR/')
-from util import MetricMonitor, SupConLoss
-from util import Tweetyclr, Temporal_Augmentation, TwoCropTransform, Custom_Contrastive_Dataset
-import torch.nn as nn
-import torch.nn.functional as F
-import os
-import pickle
-from torch.utils.data import DataLoader, TensorDataset
-import umap
-import matplotlib.pyplot as plt
-import torch.optim as optim
-
-import os
-import matplotlib.pyplot as plt
-import numpy as np
-import os
-import numpy as np
-import pickle
-import matplotlib.pyplot as plt
-import umap
-import torch
-from bokeh.plotting import figure, show, output_file, save
-from bokeh.models import HoverTool, ColumnDataSource
-import pandas as pd
-from torch.utils.data import Dataset
-from PIL import Image
-import base64
-import io
-from io import BytesIO
-
-import numpy as np
-import pyqtgraph as pg
-from pyqtgraph.Qt import QtGui
-from matplotlib import cm
-from PyQt5.QtCore import Qt
-from torch.utils.data import DataLoader, TensorDataset
-import torch.nn as nn
-import torch.nn.functional as F 
-import sys
-sys.path.append('/home/akapoor/Dropbox (University of Oregon)/Kapoor_Ananya/01_Projects/01_b_Canary_SSL/TweetyCLR/')
-from util import MetricMonitor, SupConLoss
-import torch.optim as optim
-from util import Tweetyclr, TwoCropTransform, Custom_Contrastive_Dataset
+plt.rcParams.update({'font.size': 20})
+plt.rcParams['figure.figsize'] = [15, 15]  # width and height should be in inches, e.g., [10, 6]
 
 # torch.multiprocessing.set_sharing_strategy('file_system')
 
@@ -143,16 +98,19 @@ class Encoder(nn.Module):
         
         return x
 
-def pretraining(epoch, model, contrastive_loader, optimizer, criterion, method='SimCLR'):
+def pretraining(epoch, model, contrastive_loader_train, contrastive_loader_test, optimizer, criterion, epoch_number, method='SimCLR'):
     "Contrastive pre-training over an epoch. Adapted from XX"
     negative_similarities_for_epoch = []
     ntxent_positive_similarities_for_epoch = []
     mean_pos_cos_sim_for_epoch = []
     mean_ntxent_positive_similarities_for_epoch = []
     metric_monitor = MetricMonitor()
+    
+    # TRAINING PHASE
+    
     model.train()
 
-    for batch_data in enumerate(contrastive_loader):
+    for batch_data in enumerate(contrastive_loader_train):
         data_list = []
         label_list = []
         a = batch_data[1]
@@ -180,28 +138,69 @@ def pretraining(epoch, model, contrastive_loader, optimizer, criterion, method='
 
         features = torch.cat(split_features, dim = 1)
 
-        loss, negative_similarities, positive_similarities = criterion(features)
+        training_loss, training_negative_similarities, training_positive_similarities = criterion(features)
 
-        metric_monitor.update("Loss", loss.item())
+        metric_monitor.update("Training Loss", training_loss.item())
         metric_monitor.update("Learning Rate", optimizer.param_groups[0]['lr'])
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
+        
+        if epoch_number !=0:
+            optimizer.zero_grad()
+            training_loss.backward()
+            optimizer.step()
 
-        negative_similarities_for_epoch.append(float(np.mean(negative_similarities.clone().detach().cpu().numpy())))
+        negative_similarities_for_epoch.append(float(np.mean(training_negative_similarities.clone().detach().cpu().numpy())))
 
-        ntxent_positive_similarities_for_epoch.append(positive_similarities)
+        ntxent_positive_similarities_for_epoch.append(float(np.mean(training_positive_similarities.clone().detach().cpu().numpy())))
         
         # # Calculate the mean cosine similarity of the model feature representation for the positive pairs.
         # # Slice the tensor to separate the two sets of features you want to compare
         
         split_features = torch.split(normalized_tensor, [bsz]*len(a), dim=0)
         split_features = [split.unsqueeze(1) for split in split_features]
-        features = torch.cat(split_features, dim = 1)
+        training_features = torch.cat(split_features, dim = 1)
         
-    print("[Epoch: {epoch:03d}] Contrastive Pre-train | {metric_monitor}".format(epoch=epoch, metric_monitor=metric_monitor))
+        # VALIDATION PHASE
+        
+        model.eval()
+
+        for batch_data in enumerate(contrastive_loader_test):
+            data_list = []
+            label_list = []
+            a = batch_data[1]
+            for idx in np.arange(len(a)):
+                data_list.append(a[idx][0])
+            
+        # for batch_idx, ((data1, labels1), (data2, labels2)) in enumerate(contrastive_loader):
+            data = torch.cat((data_list), dim = 0)
+            data = data.unsqueeze(1)
+            # data = data.reshape(a[idx][0].shape[0], len(a), a[idx][0].shape[1], a[idx][0].shape[2])
+            # labels = labels1
+            if torch.cuda.is_available():
+                data = data.cuda()
+            data = torch.autograd.Variable(data,False)
+            bsz = a[idx][0].shape[0]
+            data = data.to(torch.float32)
+            features = model(data)
+            norm = features.norm(p=2, dim=1, keepdim=True)
+            epsilon = 1e-12
+            # Add a small epsilon to prevent division by zero
+            normalized_tensor = features / (norm + epsilon)
+            split_features = torch.split(normalized_tensor, [bsz]*len(a), dim=0)
+            split_features = [split.unsqueeze(1) for split in split_features]
+
+            validation_features = torch.cat(split_features, dim = 1)
+
+            validation_loss, validation_negative_similarities, validation_positive_similarities = criterion(validation_features)
+            
+            metric_monitor.update("Validation Loss", validation_loss.item())
+
+
+    # print("[Epoch: {epoch:03d}] Contrastive Pre-train | {metric_monitor}".format(epoch=epoch, metric_monitor=metric_monitor))
+    print(f'Epoch: {epoch:03d} Contrastive Pre-train Loss: {training_loss:.3f}, Validation Loss: {validation_loss:.3f}')
     # return metric_monitor.metrics['Loss']['avg'], metric_monitor.metrics['Learning Rate']['avg'], negative_similarities_for_epoch, features, mean_pos_cos_sim_for_epoch, mean_ntxent_positive_similarities_for_epoch
-    return metric_monitor.metrics['Loss']['avg'], metric_monitor.metrics['Learning Rate']['avg'], features
+    return metric_monitor.metrics['Training Loss']['avg'], metric_monitor.metrics['Validation Loss']['avg'], metric_monitor.metrics['Learning Rate']['avg'], training_features, validation_features, negative_similarities_for_epoch, ntxent_positive_similarities_for_epoch
+
+
 
 
 # =============================================================================
@@ -213,7 +212,7 @@ directory = bird_dir+ 'Python_Files'
 analysis_path = '/home/akapoor/Dropbox (University of Oregon)/Kapoor_Ananya/01_Projects/01_b_Canary_SSL/TweetyCLR_Repo/'
 
 # Parameters we set
-num_spec = 100
+num_spec = 150
 window_size = 100
 stride = 10
 
@@ -272,9 +271,20 @@ simple_tweetyclr.umap_embed_init = embed
 
 # embed = np.load('/home/akapoor/Desktop/embed.npy')
 
+# plt.figure()
+# plt.scatter(embed[:,0], embed[:,1], s = 10, c = simple_tweetyclr.mean_colors_per_minispec)
+# plt.show()
+
 plt.figure()
 plt.scatter(embed[:,0], embed[:,1], s = 10, c = simple_tweetyclr.mean_colors_per_minispec)
+plt.xlabel("UMAP 1")
+plt.ylabel("UMAP 2")
+# plt.title("UMAP Decomposition of ")
+# plt.suptitle("UMAP Representation of All Spectrogram Slices")
+plt.title(f'Total Slices: {embed.shape[0]}')
+plt.savefig(f'{simple_tweetyclr.folder_name}/Plots/UMAP_of_all_slices.png')
 plt.show()
+
 
 # save the umap embedding for easy future loading
 # np.save('/home/akapoor/Desktop/embed.npy', embed)
@@ -289,18 +299,275 @@ ylim = ax.get_ylim()
 
 hard_indices = np.where((embed[:,0]>=xlim[0])&(embed[:,0]<=xlim[1]) & (embed[:,1]>=ylim[0]) & (embed[:,1]<=ylim[1]))[0]
 
+plt.figure(figsize = (10,10))
+plt.scatter(embed[hard_indices,0], embed[hard_indices,1], s = 10, c = simple_tweetyclr.mean_colors_per_minispec[hard_indices,:])
+plt.xlabel("UMAP 1")
+plt.ylabel("UMAP 2")
+# plt.title("UMAP Decomposition of ")
+# plt.suptitle("UMAP Representation of All Spectrogram Slices")
+plt.title(f'Total Slices: {embed[hard_indices,:].shape[0]}')
+plt.savefig(f'{simple_tweetyclr.folder_name}/Plots/UMAP_of_hard_slices.png')
+plt.show()
 
 simple_tweetyclr.hard_indices = hard_indices
 
 dataset = simple_tweetyclr.stacked_windows.copy()
 
 # These will give the training and testing ANCHORS
-stacked_windows_train, stacked_labels_train, mean_colors_per_minispec_train, training_indices, stacked_windows_test, stacked_labels_test, mean_colors_per_minispec_test, testing_indices = simple_tweetyclr.train_test_split(dataset, 1.0, hard_indices)
+stacked_windows_train, stacked_labels_train, mean_colors_per_minispec_train, hard_indices_train, stacked_windows_test, stacked_labels_test, mean_colors_per_minispec_test, hard_indices_test = simple_tweetyclr.train_test_split(dataset, 0.8, hard_indices)
 
 data_for_analysis = dataset.copy() 
 
 total_dataset = TensorDataset(torch.tensor(data_for_analysis.reshape(data_for_analysis.shape[0], 1, simple_tweetyclr.time_dim, simple_tweetyclr.freq_dim)))
 total_dataloader = DataLoader(total_dataset, batch_size=batch_size , shuffle=False)
+
+list_of_images = []
+for batch_idx, (data) in enumerate(total_dataloader):
+    data = data[0]
+    
+    for image in data:
+        list_of_images.append(image)
+        
+list_of_images = [tensor.numpy() for tensor in list_of_images]
+
+embeddable_images = simple_tweetyclr.get_images(list_of_images)
+
+simple_tweetyclr.plot_UMAP_embedding(embed, simple_tweetyclr.mean_colors_per_minispec,embeddable_images, f'{simple_tweetyclr.folder_name}/Plots/UMAP_of_all_slices.html', saveflag = True)
+
+# =============================================================================
+#  VAE BENCHMARKING ON CONFUSED REGION
+# =============================================================================
+
+latent_dims = 32
+num_epochs = 100 #usually 100
+batch_size = 32
+learning_rate = 1e-3
+variational_beta = 1
+use_gpu = True
+
+class Encoder_VAE(nn.Module):
+    def __init__(self):
+        super(Encoder_VAE, self).__init__()
+        self.batchNorm1 = nn.BatchNorm2d(1)
+        self.conv1 = nn.Conv2d(1, 8, 3, 1, padding=1)
+        self.batchNorm2 = nn.BatchNorm2d(8)
+        self.conv2 = nn.Conv2d(8, 8, 3, 2, padding=1)
+        self.batchNorm3 = nn.BatchNorm2d(8)
+        self.conv3 = nn.Conv2d(8,16,3, 1, padding=1)
+        self.batchNorm4 = nn.BatchNorm2d(16)
+        self.conv4 = nn.Conv2d(16,16,3,2, padding=1)
+        self.batchNorm5 = nn.BatchNorm2d(16)
+        self.conv5 = nn.Conv2d(16,24,3,1, padding=1)
+        self.batchNorm6 = nn.BatchNorm2d(24)
+        self.conv6 = nn.Conv2d(24,24,3,2, padding=1)
+        self.batchNorm7 = nn.BatchNorm2d(24)
+        self.conv7 = nn.Conv2d(24,32,3,1, padding=1)
+        self.flatten = nn.Flatten()
+        self.fc1 = nn.Linear(7904, 1024)
+        self.fc2 = nn.Linear(1024, 256)
+        self.fc3 = nn.Linear(256, 64)
+        
+        self.fc_mu = nn.Linear(in_features=64, out_features=latent_dims)
+        self.fc_logvar = nn.Linear(in_features=64, out_features=latent_dims)
+            
+    def forward(self, x):
+        x = F.relu(self.conv1(self.batchNorm1(x)))
+        x = F.relu(self.conv2(self.batchNorm2(x)))
+        x = F.relu(self.conv3(self.batchNorm3(x)))
+        x = F.relu(self.conv4(self.batchNorm4(x)))
+        x = F.relu(self.conv5(self.batchNorm5(x)))
+        x = F.relu(self.conv6(self.batchNorm6(x)))
+        x = F.relu(self.conv7(self.batchNorm7(x)))
+
+        x = self.flatten(x)
+
+        x = F.relu(self.fc1(x))
+        x = F.relu(self.fc2(x))
+        x = F.relu(self.fc3(x))
+
+        x_mu = self.fc_mu(x)
+        x_logvar = self.fc_logvar(x)
+
+        return x_mu, x_logvar
+
+class Decoder_VAE(nn.Module):
+    def __init__(self):
+        super(Decoder_VAE, self).__init__()
+        self.fc1 = nn.Linear(in_features=latent_dims, out_features=64)
+        self.fc2 = nn.Linear(in_features=64, out_features=256)
+        self.fc3 = nn.Linear(in_features=256, out_features=1024)
+        self.fc4 = nn.Linear(in_features=1024, out_features=7904)
+        self.unflatten = nn.Unflatten(1, (32, 13, 19))
+
+        self.conv1 = nn.ConvTranspose2d(32,24,3,1,padding=1)
+        self.conv2 = nn.ConvTranspose2d(24,24,3,2,padding=1, output_padding = (0,1))
+        self.conv3 = nn.ConvTranspose2d(24, 16, 3, 1, padding=1)
+        self.conv4 = nn.ConvTranspose2d(16,16,3,2,padding=1,output_padding=1)
+        self.conv5 = nn.ConvTranspose2d(16,8,3,1,padding=1)
+        self.conv6 = nn.ConvTranspose2d(8, 8, 3, 2, padding=1, output_padding=(1, 0))
+        self.conv7 = nn.ConvTranspose2d(8, 1, 3, 1, padding=1)
+        self.batchNorm1 = nn.BatchNorm2d(32)
+        self.batchNorm2 = nn.BatchNorm2d(24)
+        self.batchNorm3 = nn.BatchNorm2d(24)
+        self.batchNorm4 = nn.BatchNorm2d(16)
+        self.batchNorm5 = nn.BatchNorm2d(16)
+        self.batchNorm6 = nn.BatchNorm2d(8)
+        self.batchNorm7 = nn.BatchNorm2d(8)
+
+    def forward(self, x):
+        x = F.relu(self.fc1(x))
+        x = F.relu(self.fc2(x))
+        x = F.relu(self.fc3(x))
+        x = F.relu(self.fc4(x))
+        
+        x = self.unflatten(x)
+
+        x = F.relu(self.conv1(self.batchNorm1(x)))
+        x = F.relu(self.conv2(self.batchNorm2(x)))
+        x = F.relu(self.conv3(self.batchNorm3(x)))
+        x = F.relu(self.conv4(self.batchNorm4(x)))
+        x = F.relu(self.conv5(self.batchNorm5(x)))
+        x = F.relu(self.conv6(self.batchNorm6(x)))
+        x = F.relu(self.conv7(self.batchNorm7(x)))
+
+        x = F.relu(x) # last layer before output is sigmoid, since we are using BCE as reconstruction loss
+
+        return x
+
+
+## the code below was heavily inspired by a VAE tutorial, but I can't find it and thus can't credit it :(
+class VariationalAutoencoder(nn.Module):
+    def __init__(self):
+        super(VariationalAutoencoder, self).__init__()
+        self.encoder = Encoder_VAE()
+        self.decoder = Decoder_VAE()
+    
+    def forward(self, x):
+        latent_mu, latent_logvar = self.encoder(x)
+
+        latent = self.latent_sample(latent_mu, latent_logvar)
+
+        x_recon = self.decoder(latent)
+
+        return x_recon, latent_mu, latent_logvar
+    
+    def latent_sample(self, mu, logvar):
+        if self.training:
+            # the reparameterization trick
+            std = logvar.mul(0.5).exp_()
+            eps = torch.empty_like(std).normal_()
+            return eps.mul(std).add_(mu)
+        else:
+            return mu
+    
+def vae_loss(recon_x, x, mu, logvar):
+    flatten = nn.Flatten()
+    flattened_recon = flatten(recon_x)
+    flattened_x = flatten(x)
+    recon_loss = F.mse_loss(flattened_recon, flattened_x, reduction='sum')
+    kldivergence = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
+    
+    return recon_loss + kldivergence * variational_beta
+    
+    
+vae = VariationalAutoencoder()
+
+device = torch.device("cuda:0" if use_gpu and torch.cuda.is_available() else "cpu")
+vae = vae.to(device)
+
+num_params = sum(p.numel() for p in vae.parameters() if p.requires_grad)
+print('Number of parameters: %d' % num_params)
+    
+## Create the training dataloader for VAE
+
+hard_stacked_windows = simple_tweetyclr.stacked_windows[hard_indices,:]
+
+hard_dataset = TensorDataset(torch.tensor(hard_stacked_windows.reshape(hard_stacked_windows.shape[0], 1, simple_tweetyclr.time_dim, simple_tweetyclr.freq_dim)))
+hard_dataloader = DataLoader(hard_dataset, batch_size=batch_size , shuffle=False)
+
+optimizer = torch.optim.Adam(params=vae.parameters(), lr=learning_rate, weight_decay=1e-5)
+
+# set to training mode
+vae.train()
+
+train_loss_for_plot = []
+
+print('Training ...')
+for epoch in range(num_epochs):
+    # print('Epoch %d/%d' % (epoch+1, num_epochs))
+
+    train_loss_avg = []
+    
+    for spec in hard_dataloader:
+        # spec = spec[0].to(torch.float32).to(device)
+        spec = spec[0].to(torch.float32).to(device)
+        
+        # vae reconstruction
+        image_batch_recon, latent_mu, latent_logvar = vae(spec)
+    
+        # reconstruction error
+        loss = vae_loss(image_batch_recon, spec, latent_mu, latent_logvar)
+        
+        # backpropagation
+        optimizer.zero_grad()
+        loss.backward()
+        
+        # one step of the optmizer (using the gradients from backpropagation)
+        optimizer.step()
+        
+        train_loss_avg.append(loss.item())
+        
+    print(f'Epoch: {epoch}')
+    print(f"train loss: {np.mean(train_loss_avg)}")
+
+    train_loss_for_plot.append(np.mean(train_loss_avg))
+
+plt.figure();
+plt.plot(train_loss_for_plot, label='train loss');
+plt.show()
+
+import pandas as pd
+
+# contains a list of batches which contain the latent space variables
+list_of_latent_averages = []
+list_of_images = []
+
+for image_batch in hard_dataloader:
+    image_batch = image_batch[0].to(torch.float32).to(device)
+
+    # returns tuple of average and std of latent space in that order
+    output = vae.encoder(image_batch)
+    output = output[0]
+
+    # for the visualization
+    image_batch.squeeze_(1)
+
+    # convert to numpy array
+    output = output.cpu()
+    output = output.detach().numpy()
+    image_batch = image_batch.cpu()
+    image_batch = image_batch.detach().numpy()
+
+    for latent_vector in output:
+        list_of_latent_averages.append(latent_vector)
+
+    for image in image_batch:
+        list_of_images.append(image)
+
+
+# convert list of latent averages to a numpy array
+list_of_latent_averages = np.array(list_of_latent_averages)
+list_of_images = np.array(list_of_images)
+
+reducer = umap.UMAP(metric = 'cosine')
+embed = reducer.fit_transform(list_of_latent_averages)
+
+plt.figure()
+plt.title("UMAP Projection of the VAE Latent Embedding")
+plt.xlabel("UMAP 1")
+plt.ylabel("UMAP 2")
+plt.scatter(embed[:,0], embed[:,1], c = simple_tweetyclr.mean_colors_per_minispec[hard_indices,:])
+plt.show()
 
 # =============================================================================
 # # Hand select negative samples
@@ -310,7 +577,13 @@ total_dataloader = DataLoader(total_dataset, batch_size=batch_size , shuffle=Fal
 # the bounding box, selecting spectrogram slices within the bounding box that 
 # have a low cosine similarity. 
 
-training_indices, stacked_windows_train = simple_tweetyclr.negative_sample_selection(data_for_analysis, training_indices)
+training_indices, stacked_windows_train = simple_tweetyclr.negative_sample_selection(data_for_analysis, hard_indices_train, None)
+
+# Let's eliminate the easy training negatives from the selection of easy negatives for the testing dataset
+all_easy_indices = np.array(list(set(np.arange(data_for_analysis.shape[0])) - set(hard_indices)))
+training_easy_negatives = np.intersect1d(training_indices, all_easy_indices)
+
+testing_indices, stacked_windows_test = simple_tweetyclr.negative_sample_selection(data_for_analysis, hard_indices_test, training_easy_negatives)
 
 dict_of_spec_slices_with_slice_number = {i: data_for_analysis[i, :] for i in range(data_for_analysis.shape[0])}
 
@@ -324,75 +597,144 @@ augmentation_object = Temporal_Augmentation(dict_of_spec_slices_with_slice_numbe
 
 custom_transformation = TwoCropTransform(augmentation_object)
 
+# Training contrastive loader
 # # Your new_contrastive_dataset initialization would be:
 new_contrastive_dataset = Custom_Contrastive_Dataset(stacked_windows_train, torch.tensor(training_indices), custom_transformation)
 
 # # DataLoader remains the same
-contrastive_loader = torch.utils.data.DataLoader(new_contrastive_dataset, batch_size=batch_size, shuffle=False)
+contrastive_loader_train = torch.utils.data.DataLoader(new_contrastive_dataset, batch_size=batch_size, shuffle=False)
+
+# Testing contrastive loader
+new_contrastive_dataset = Custom_Contrastive_Dataset(stacked_windows_test, torch.tensor(testing_indices), custom_transformation)
+
+# # DataLoader remains the same
+contrastive_loader_test = torch.utils.data.DataLoader(new_contrastive_dataset, batch_size=batch_size, shuffle=False)
 
 # =============================================================================
 #     # Let's do some local saving to save on computational time
 # =============================================================================
 
-aug_tensor = torch.empty((tau_in_steps, 0, 1, simple_tweetyclr.window_size, 151))
+aug_tensor_train = torch.empty((tau_in_steps, 0, 1, simple_tweetyclr.window_size, 151))
 
 # first_aug_tensor = torch.empty((0, 1, simple_tweetyclr.window_size, 151))
 # second_aug_tensor = torch.empty((0, 1, simple_tweetyclr.window_size, 151))
-labels_tensor = torch.empty((0))
+labels_tensor_train = torch.empty((0))
 
-aug_dict = {}
+aug_dict_train = {}
 
 # Iterate through a range of 15 keys
 for i in range(tau_in_steps):
     value = []  # Initialize an empty list as the value for each key
-    aug_dict[i] = value
+    aug_dict_train[i] = value
 
 # aug_list = []
-labels_list = []
-batch_sizes = []
+labels_list_train = []
+batch_sizes_train = []
 
-for batch_idx, (data, labels) in enumerate(contrastive_loader):
-    labels_list.append(labels)
+for batch_idx, (data, labels) in enumerate(contrastive_loader_train):
+    labels_list_train.append(labels)
     
     for i in np.arange(len(data)):
         aug = data[i]
         # aug_tensor[i,:,:,:] = aug
-        aug_dict[i].append(aug)
+        aug_dict_train[i].append(aug)
     
-labels_tensor = torch.cat(labels_list, dim=0)
+labels_tensor_train = torch.cat(labels_list_train, dim=0)
 
-flattened_dict = {key: [item for sublist in value for item in sublist] for key, value in aug_dict.items()}
+flattened_dict_train = {key: [item for sublist in value for item in sublist] for key, value in aug_dict_train.items()}
 
 # Initialize a list to store the dictionaries
-dataloader_list = []
+dataloader_list_train = []
 # filepath_list = []
 
 
-
-for i in np.arange(len(flattened_dict)):
+for i in np.arange(len(flattened_dict_train)):
     
-    aug_data = torch.cat(flattened_dict[i], dim = 0)
-    dataset = TensorDataset(aug_data, labels_tensor)
+    aug_data = torch.cat(flattened_dict_train[i], dim = 0)
+    dataset = TensorDataset(aug_data, labels_tensor_train)
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False)
-    dataloader_list.append(dataloader)
+    dataloader_list_train.append(dataloader)
+    
+#####
+aug_tensor_test = torch.empty((tau_in_steps, 0, 1, simple_tweetyclr.window_size, 151))
+
+# first_aug_tensor = torch.empty((0, 1, simple_tweetyclr.window_size, 151))
+# second_aug_tensor = torch.empty((0, 1, simple_tweetyclr.window_size, 151))
+labels_tensor_test = torch.empty((0))
+
+aug_dict_test = {}
+
+# Iterate through a range of 15 keys
+for i in range(tau_in_steps):
+    value = []  # Initialize an empty list as the value for each key
+    aug_dict_test[i] = value
+
+# aug_list = []
+labels_list_test = []
+batch_sizes_test = []
+
+for batch_idx, (data, labels) in enumerate(contrastive_loader_test):
+    labels_list_test.append(labels)
+    
+    for i in np.arange(len(data)):
+        aug = data[i]
+        # aug_tensor[i,:,:,:] = aug
+        aug_dict_test[i].append(aug)
+    
+labels_tensor_test = torch.cat(labels_list_test, dim=0)
+
+flattened_dict_test = {key: [item for sublist in value for item in sublist] for key, value in aug_dict_test.items()}
+
+# Initialize a list to store the dictionaries
+dataloader_list_test = []
+# filepath_list = []
 
 
+for i in np.arange(len(flattened_dict_test)):
+    
+    aug_data = torch.cat(flattened_dict_test[i], dim = 0)
+    dataset = TensorDataset(aug_data, labels_tensor_test)
+    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False)
+    dataloader_list_test.append(dataloader)    
+    
 
 hard_stacked_windows = simple_tweetyclr.stacked_windows[hard_indices,:]
 
 hard_dataset = TensorDataset(torch.tensor(hard_stacked_windows.reshape(hard_stacked_windows.shape[0], 1, simple_tweetyclr.time_dim, simple_tweetyclr.freq_dim)))
 hard_dataloader = DataLoader(hard_dataset, batch_size=batch_size , shuffle=False)
 
-list_of_images = []
-for batch_idx, (data) in enumerate(hard_dataloader):
+
+
+hard_stacked_windows = simple_tweetyclr.stacked_windows[hard_indices_train,:]
+hard_dataset_train = TensorDataset(torch.tensor(hard_stacked_windows.reshape(hard_stacked_windows.shape[0], 1, simple_tweetyclr.time_dim, simple_tweetyclr.freq_dim)))
+hard_dataloader_train = DataLoader(hard_dataset_train, batch_size=batch_size , shuffle=False)
+
+hard_stacked_windows = simple_tweetyclr.stacked_windows[hard_indices_test,:]
+hard_dataset_test = TensorDataset(torch.tensor(hard_stacked_windows.reshape(hard_stacked_windows.shape[0], 1, simple_tweetyclr.time_dim, simple_tweetyclr.freq_dim)))
+hard_dataloader_test = DataLoader(hard_dataset_test, batch_size=batch_size , shuffle=False)
+
+list_of_images_train = []
+for batch_idx, (data) in enumerate(hard_dataloader_train):
     data = data[0]
     
     for image in data:
-        list_of_images.append(image)
+        list_of_images_train.append(image)
         
-list_of_images = [tensor.numpy() for tensor in list_of_images]
+list_of_images_train = [tensor.numpy() for tensor in list_of_images_train]
 
-embeddable_images = simple_tweetyclr.get_images(list_of_images)
+embeddable_images_train = simple_tweetyclr.get_images(list_of_images_train)
+
+
+list_of_images_test = []
+for batch_idx, (data) in enumerate(hard_dataloader_test):
+    data = data[0]
+    
+    for image in data:
+        list_of_images_test.append(image)
+        
+list_of_images_test = [tensor.numpy() for tensor in list_of_images_test]
+
+embeddable_images_test = simple_tweetyclr.get_images(list_of_images_test)
 
 # =============================================================================
 #     # Pass data through untrained model and extract representation
@@ -415,17 +757,21 @@ optimizer = optim.AdamW(model.parameters(), lr=0.001, weight_decay=0.01)  # Usin
 scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=20, gamma=0.9)
 
 model = model.to('cpu')
+original_model = model.module
+original_model.to('cpu')
 model.eval()
-
+# model = model.to('cpu')
 # Initialize lists to store features and labels
 model_rep_list_untrained = []
 
+criterion = SupConLoss(temperature=temp_value)
 # Iterate over the DataLoaders
 with torch.no_grad():  # Disable gradient computation for efficiency
     # for data_loader in dataloader_list:
-    for batch_idx, (data) in enumerate(hard_dataloader):
+    for batch_idx, (data) in enumerate(hard_dataloader_train):
         data = data[0].to(torch.float32)
-        features = model(data)
+        # features = original_model(data)
+        features = original_model(data)
         model_rep_list_untrained.append(features)
 
 # Convert lists to tensors
@@ -438,106 +784,132 @@ a = model_rep_untrained.clone().detach().numpy()
 embed = reducer.fit_transform(a)
 
 plt.figure()
-plt.title("Data UMAP Representation Through the Untrained Model")
-plt.scatter(embed[:,0], embed[:,1], c = simple_tweetyclr.mean_colors_per_minispec[hard_indices,:])
+plt.suptitle("Training UMAP Representation Through the Untrained Model")
+plt.title(f'Number of Slices: {hard_indices_train.shape[0]}')
+plt.scatter(embed[:,0], embed[:,1], c = simple_tweetyclr.mean_colors_per_minispec[hard_indices_train,:])
+plt.xlabel("UMAP 1")
+plt.ylabel("UMAP 2")
 plt.savefig(f'{simple_tweetyclr.folder_name}/Plots/UMAP_of_untrained_model.png')
 plt.show()
 
-simple_tweetyclr.plot_UMAP_embedding(embed, simple_tweetyclr.mean_colors_per_minispec[hard_indices,:],embeddable_images, f'{simple_tweetyclr.folder_name}/Plots/UMAP_of_untrained_model.html', saveflag = True)
+simple_tweetyclr.plot_UMAP_embedding(embed, simple_tweetyclr.mean_colors_per_minispec[hard_indices_train,:],embeddable_images_train, f'{simple_tweetyclr.folder_name}/Plots/UMAP_of_untrained_model.html', saveflag = True)
 
+torch.save(model.state_dict(), f'{simple_tweetyclr.folder_name}/untrained_model_state_dict.pth')
 
-dict_of_spec_slices_with_slice_number = {i: data_for_analysis[i, :] for i in range(data_for_analysis.shape[0])}
-
-items = list(dict_of_spec_slices_with_slice_number.items())
-
-# =============================================================================
-#     # Create contrastive dataloaders
-# =============================================================================
-    
-augmentation_object = Temporal_Augmentation(dict_of_spec_slices_with_slice_number , simple_tweetyclr, tau_in_steps=tau_in_steps)
-
-custom_transformation = TwoCropTransform(augmentation_object)
-
-# # Your new_contrastive_dataset initialization would be:
-new_contrastive_dataset = Custom_Contrastive_Dataset(stacked_windows_train, torch.tensor(training_indices), custom_transformation)
-
-# # DataLoader remains the same
-contrastive_loader = torch.utils.data.DataLoader(new_contrastive_dataset, batch_size=batch_size, shuffle=False)
-
-# a = next(iter(contrastive_loader))
-
-# =============================================================================
-#     # Let's do some local saving to save on computational time
-# =============================================================================
-
-aug_tensor = torch.empty((tau_in_steps, 0, 1, simple_tweetyclr.window_size, 151))
-
-# first_aug_tensor = torch.empty((0, 1, simple_tweetyclr.window_size, 151))
-# second_aug_tensor = torch.empty((0, 1, simple_tweetyclr.window_size, 151))
-labels_tensor = torch.empty((0))
-
-aug_dict = {}
-
-# Iterate through a range of 15 keys
-for i in range(tau_in_steps):
-    value = []  # Initialize an empty list as the value for each key
-    aug_dict[i] = value
-
-# aug_list = []
-labels_list = []
-batch_sizes = []
-
-for batch_idx, (data, labels) in enumerate(contrastive_loader):
-    labels_list.append(labels)
-    
-    for i in np.arange(len(data)):
-        aug = data[i]
-        # aug_tensor[i,:,:,:] = aug
-        aug_dict[i].append(aug)
-    
-labels_tensor = torch.cat(labels_list, dim=0)
-
-flattened_dict = {key: [item for sublist in value for item in sublist] for key, value in aug_dict.items()}
-
-# Initialize a list to store the dictionaries
-dataloader_list = []
-# filepath_list = []
-
-
-for i in np.arange(len(flattened_dict)):
-    
-    aug_data = torch.cat(flattened_dict[i], dim = 0)
-    dataset = TensorDataset(aug_data, labels_tensor)
-    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False)
-    dataloader_list.append(dataloader)
-
-
-contrastive_loss, contrastive_lr = [], []
-model = Encoder().to(torch.float32).to(device)
-# if torch.cuda.is_available():
-#     model = model.cuda()
-    # criterion = criterion.cuda()   
+training_contrastive_loss, validation_contrastive_loss, contrastive_lr = [], [], []
+model = model.to(device)
+if torch.cuda.is_available():
+    model = model.cuda()
+    criterion = criterion.cuda()   
 # optimizer = torch.optim.Adam(model.parameters(), lr=1e-3, betas=(0.9, 0.999), eps=1e-08)
 # from torch.optim.lr_scheduler import CosineAnnealingLR
 optimizer = optim.AdamW(model.parameters(), lr=0.001, weight_decay=0.01)  # Using weight decay with AdamW
 scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=20, gamma=0.9)
 # scheduler = CosineAnnealingLR(optimizer, T_max=num_epochs, eta_min=0)
-model = model.to(device)
 model.train()
 
-for epoch in range(1, num_epochs+1):
+# THIS BELOW TRAINING LOOP NEEDS TO BE MODIFIED SO THAT I AM EVALUATING THE TRAINING AND VALIDATION PERFORMANCE. ALSO INCLUDE EARLY STOPPING. 
+
+initial_negative_sims = []
+initial_positive_sims = []
+
+final_negative_sims = []
+final_positive_sims = []
+
+
+for epoch in range(0, num_epochs+1):
     criterion = SupConLoss(temperature=temp_value)
     # loss, lr, negative_similarities_for_epoch, features, mean_pos_cos_sim_for_epoch, mean_ntxent_positive_similarities_for_epoch = pretraining(epoch, model, zip(*dataloader_list), optimizer, criterion, method=method)
-    loss, lr, features = pretraining(epoch, model, zip(*dataloader_list), optimizer, criterion, method=method)
-
-    if use_scheduler:
+    training_loss, validation_loss, lr, training_features, validation_features, negative_sims, positive_sims = pretraining(epoch, model, zip(*dataloader_list_train), zip(*dataloader_list_test), optimizer, criterion, epoch, method=method)
+    
+    if epoch == 0:
+        initial_negative_sims.append(negative_sims)
+        initial_positive_sims.append(positive_sims)
+    elif epoch == num_epochs:
+        final_negative_sims.append(negative_sims)
+        final_positive_sims.append(positive_sims)
+        
+    if (use_scheduler == True) & (epoch !=0):
         scheduler.step()
             
-    contrastive_loss.append(loss)
+    training_contrastive_loss.append(training_loss)
+    validation_contrastive_loss.append(validation_loss)
     contrastive_lr.append(lr)
     
-model = model.to('cpu')
-model.eval()
+    if epoch%10 == 0:
+        torch.save(model.state_dict(), f'{simple_tweetyclr.folder_name}/_model_state_epoch_{epoch}_dict.pth')
+
+    
+
+# UNTRAINED 
+
+plt.figure()
+plt.hist([num * temp_value for num in initial_positive_sims[0]], alpha = 0.7, edgecolor = 'black', color = 'blue', label = 'Positive Sample Similarities')
+plt.hist([num * temp_value for num in initial_negative_sims[0]], alpha = 0.7, edgecolor = 'black', color = 'red', label = 'Negative Sample Similarities')
+plt.legend()
+from scipy.stats import ks_2samp
+
+ks, p = ks_2samp([num * temp_value for num in initial_positive_sims[0]], [num * temp_value for num in initial_negative_sims[0]])
+print(ks)
+plt.title("Representational Similarities of Untrained Model")
+# plt.title(f'KS Value: {ks:.3f}')
+plt.xlabel('Similarity Score')
+plt.ylabel("Frequency")
+plt.show()
+
+
+# TRAINED
+
+plt.figure()
+plt.hist([num * temp_value for num in final_positive_sims[0]], alpha = 0.7, edgecolor = 'black', color = 'blue', label = 'Positive Sample Similarities')
+plt.hist([num * temp_value for num in final_negative_sims[0]], alpha = 0.7, edgecolor = 'black', color = 'red', label = 'Negative Sample Similarities')
+plt.legend()
+from scipy.stats import ks_2samp
+
+ks, p = ks_2samp([num * temp_value for num in final_positive_sims[0]], [num * temp_value for num in final_negative_sims[0]])
+print(ks)
+plt.title("Representational Similarities of Trained Model")
+# plt.title(f'KS Value: {ks:.3f}')
+plt.xlabel('Similarity Score')
+plt.ylabel("Frequency")
+plt.show()
+
+
+
+
+
+# # Let's plot the similarity histograms before and after training
+# fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 5))  # 1 row, 2 columns
+
+# ax1.hist([num * temp_value for num in initial_negative_sims[0]])
+# ax1.set_title("Negative Similarity Scores for all Batches After First Epoch")
+# ax1.set_xlabel("Similarity Score")
+# ax1.set_ylabel('Frequency')
+
+# ax2.hist([num * temp_value for num in initial_positive_sims[0]])
+# ax2.set_title("Positive Similarlity Scores for all Batches After First Epoch")
+# ax2.set_xlabel("Similarity Score")
+# ax2.set_ylabel('Frequency')
+
+# plt.show()
+
+# fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 5))  # 1 row, 2 columns
+
+# ax1.hist([num * temp_value for num in final_negative_sims[0]])
+# ax1.set_title("Negative Similarity Scores for all Batches After Final Epoch")
+# ax1.set_xlabel("Similarity Score")
+# ax1.set_ylabel('Frequency')
+
+# ax2.hist([num * temp_value for num in final_positive_sims[0]])
+# ax2.set_title("Positive Similarity Scores for all Batches After Final Epoch")
+# ax2.set_xlabel("Similarity Score")
+# ax2.set_ylabel('Frequency')
+
+# plt.show()
+# model = model.to('cpu')
+original_model = model.module
+original_model.to('cpu')
+original_model.eval()
 
 # Initialize lists to store features and labels
 model_rep_list_trained = []
@@ -545,9 +917,9 @@ model_rep_list_trained = []
 # Iterate over the DataLoaders
 with torch.no_grad():  # Disable gradient computation for efficiency
     # for data_loader in dataloader_list:
-    for batch_idx, (data) in enumerate(hard_dataloader):
+    for batch_idx, (data) in enumerate(hard_dataloader_train):
         data = data[0].to(torch.float32)
-        features = model(data)
+        features = original_model(data)
         model_rep_list_trained.append(features)
 
 # Convert lists to tensors
@@ -563,35 +935,171 @@ trained_rep_umap = reducer.fit_transform(model_rep_trained.clone().detach().nump
 
 plt.figure()
 plt.title("Data UMAP Representation Through the Trained Model")
-plt.scatter(trained_rep_umap[:,0], trained_rep_umap[:,1], c = simple_tweetyclr.mean_colors_per_minispec[hard_indices,:])
+plt.scatter(trained_rep_umap[:,0], trained_rep_umap[:,1], c = simple_tweetyclr.mean_colors_per_minispec[hard_indices_train,:])
+plt.xlabel("UMAP 1")
+plt.ylabel("UMAP 2")
 plt.savefig(f'{simple_tweetyclr.folder_name}/UMAP_of_trained_model.png')
 plt.show()
 
 
+# NOW FOR TESTING DATA
+
+# Initialize lists to store features and labels
+model_rep_list_trained_validation = []
+
+# Iterate over the DataLoaders
+with torch.no_grad():  # Disable gradient computation for efficiency
+    # for data_loader in dataloader_list:
+    for batch_idx, (data) in enumerate(hard_dataloader_test):
+        data = data[0].to(torch.float32)
+        features = original_model(data)
+        model_rep_list_trained_validation.append(features)
+
+# Convert lists to tensors
+model_rep_trained_validation = torch.cat(model_rep_list_trained_validation, dim=0)
+
+reducer = umap.UMAP(metric='cosine')
+
+trained_rep_umap_validation = reducer.fit_transform(model_rep_trained_validation.clone().detach().numpy())
+
 plt.figure()
-plt.plot(contrastive_loss)
-plt.xlabel("Epoch")
-plt.ylabel("Loss")
+plt.title("Data UMAP Representation Through the Trained Model: Validation Data")
+plt.xlabel("UMAP 1")
+plt.ylabel("UMAP 2")
+plt.scatter(trained_rep_umap_validation[:,0], trained_rep_umap_validation[:,1], c = simple_tweetyclr.mean_colors_per_minispec[hard_indices_test,:])
+plt.savefig(f'{simple_tweetyclr.folder_name}/UMAP_of_trained_model_validation_data.png')
 plt.show()
 
-simple_tweetyclr.plot_UMAP_embedding(trained_rep_umap,  simple_tweetyclr.mean_colors_per_minispec[hard_indices,:], embeddable_images, f'{simple_tweetyclr.folder_name}/Plots/UMAP_of_trained_model.html', saveflag = True)
+
+plt.figure()
+plt.title("Loss Curve")
+plt.plot(training_contrastive_loss[1:], color = 'blue', label = 'training')
+plt.plot(validation_contrastive_loss[1:], color = 'orange', label = 'validation')
+plt.xlabel("Epoch")
+plt.ylabel("Loss")
+plt.legend()
+plt.savefig(f'{simple_tweetyclr.folder_name}/loss_curves.png')
+plt.show()
+
+simple_tweetyclr.plot_UMAP_embedding(trained_rep_umap,  simple_tweetyclr.mean_colors_per_minispec[hard_indices_train,:], embeddable_images_train, f'{simple_tweetyclr.folder_name}/Plots/UMAP_of_trained_model.html', saveflag = True)
+simple_tweetyclr.plot_UMAP_embedding(trained_rep_umap_validation,  simple_tweetyclr.mean_colors_per_minispec[hard_indices_test,:], embeddable_images_test, f'{simple_tweetyclr.folder_name}/Plots/UMAP_of_trained_model_testing.html', saveflag = True)
 
 # =============================================================================
 # # DOWNSTREAM EVALUATION
 # =============================================================================
 
-# Let's do K-Means + K-Fold CV with Silhouette score as the evaluation metric. This will allow me to determine how many clusters to use. 
+# Let's do K-Means + K-Fold CV with Silhouette score as the evaluation metric. This will allow me to determine how many clusers to use. 
 
 X = trained_rep_umap.copy()
 
+import hdbscan
+clusterer = hdbscan.HDBSCAN(min_cluster_size = 100, gen_min_span_tree=True)
+# Get the cluster labels
+
+clusterer.fit(X)
+
+# Get the cluster labels
+labels = clusterer.labels_
+
+# Number of clusters (excluding noise points)
+n_clusters = len(set(labels)) - (1 if -1 in labels else 0)
+
+print("Number of clusters:", n_clusters)
+
+plt.figure()
+plt.scatter(X[:,0], X[:,1], c=clusterer.labels_, cmap='viridis', s=50)
+plt.suptitle("HDBSCAN Clustering of Trained UMAP+TweetyCLR Representation of Training Data")
+plt.title(f'Number of Clusters Detected: {n_clusters}')
+plt.xlabel("UMAP 1")
+plt.ylabel("UMAP 2")
+plt.savefig(f'{simple_tweetyclr.folder_name}/hdbscan_plot_trained_model_training_data.png')
+plt.show()
+
+
+# HDBSCAN On confused region raw UMAP 
+
+X = simple_tweetyclr.umap_embed_init[hard_indices_train,:].copy()
+
+import hdbscan
+clusterer = hdbscan.HDBSCAN(min_cluster_size=100, gen_min_span_tree=True)
+# Get the cluster labels
+
+clusterer.fit(X)
+
+# Get the cluster labels
+labels = clusterer.labels_
+
+# Number of clusters (excluding noise points)
+n_clusters = len(set(labels)) - (1 if -1 in labels else 0)
+
+print("Number of clusters:", n_clusters)
+
+plt.figure()
+plt.scatter(X[:,0], X[:,1], c=clusterer.labels_, cmap='viridis', s=50)
+plt.suptitle("HDBSCAN Clustering of UMAP Representation of Training Data")
+plt.title(f'Number of Clusters Detected: {n_clusters}')
+plt.xlabel("UMAP 1")
+plt.ylabel("UMAP 2")
+plt.savefig(f'{simple_tweetyclr.folder_name}/hdbscan_plot_UMAP_training_data.png')
+plt.show()
+
+
+
+
 
 # Number of splits for K-Fold
-n_splits = 5
+n_splits = 10
 
 # Range of the number of clusters
 cluster_range = range(2, 10)
 
 simple_tweetyclr.downstream_clustering(X, n_splits, cluster_range)
+
+# plt.figure()
+# plt.scatter(X[:,0], X[:,1], c=clusterer.labels_, cmap='Spectral', s=50)
+# plt.title("HDBSCAN Clustering")
+# plt.show()
+
+
+
+# Validation data
+X = trained_rep_umap_validation.copy()
+
+clusterer = hdbscan.HDBSCAN(min_cluster_size=100, gen_min_span_tree=True)
+# Get the cluster labels
+
+clusterer.fit(X)
+
+# Get the cluster labels
+labels = clusterer.labels_
+
+# Number of clusters (excluding noise points)
+n_clusters = len(set(labels)) - (1 if -1 in labels else 0)
+
+print("Number of clusters:", n_clusters)
+
+plt.figure()
+plt.scatter(X[:,0], X[:,1], c=clusterer.labels_, cmap='viridis', s=50)
+plt.title("HDBSCAN Clustering of Trained UMAP+TweetyCLR Representation of Validation Data")
+plt.xlabel("UMAP 1")
+plt.ylabel("UMAP 2")
+plt.savefig(f'{simple_tweetyclr.folder_name}/hdbscan_plot_trained_model_validation_data.png')
+plt.show()
+
+
+
+
+
+
+
+
+# # Number of splits for K-Fold
+# n_splits = 5
+
+# # Range of the number of clusters
+# cluster_range = range(2, 10)
+
+# simple_tweetyclr.downstream_clustering(X, n_splits, cluster_range)
 
 
 # Let's do supervised classification on non-transition slices only
@@ -609,9 +1117,7 @@ transition_slices_indices = np.array(transition_slice_indices)
 X = np.delete(X, transition_slice_indices, axis = 0)
 # X = np.delete(trained_rep_umap, transition_slice_indices, axis = 0)
 labels = np.delete(stacked_labels_train, transition_slice_indices, axis = 0)
-mcpm = np.delete(simple_tweetyclr.mean_colors_per_minispec[hard_indices,:], transition_slice_indices, axis = 0)
-
-# plt.figure();plt.scatter(X[:,0], X[:,1], c = mcpm)
+mcpm = np.delete(simple_tweetyclr.mean_colors_per_minispec[hard_indices_train,:], transition_slice_indices, axis = 0)
 
 # Function to find the first nonzero element in each row
 def first_nonzero(arr, axis, invalid_val=-1):
@@ -658,23 +1164,24 @@ class LinearClassifier(nn.Module):
 
 # Example usage
 input_size = 320  # Number of input features
-num_classes = 4  # Number of classes (change as needed)
+num_classes = unique_labels.shape[0]  # Number of classes (change as needed)
 
-model = LinearClassifier(input_size, num_classes)
+clf = LinearClassifier(input_size, num_classes)
 # Loss function and optimizer
 loss_function = nn.CrossEntropyLoss()
-optimizer = optim.Adam(model.parameters(), lr=0.01)
+optimizer = optim.Adam(clf.parameters(), lr=0.01)
 
-
+loss_list = []
 # Training loop
 num_epochs = 100
 for epoch in range(num_epochs):
     for inputs, targets in train_loader:
         optimizer.zero_grad()
-        outputs = model(inputs)
+        outputs = clf(inputs)
         loss = loss_function(outputs, targets)
         loss.backward()
         optimizer.step()
+        loss_list.append(loss.item())
 
     print(f'Epoch [{epoch+1}/{num_epochs}], Loss: {loss.item():.4f}')
 
@@ -684,15 +1191,18 @@ for epoch in range(num_epochs):
 # =============================================================================
 
 
-model.eval()  # Set the model to evaluation mode
-
+clf.eval()  # Set the model to evaluation mode
+predictions = []
+targets_list = []
 correct = 0
 total = 0
 logit_scores = []
 with torch.no_grad():  # No need to track gradients for validation
     for inputs, targets in train_loader:
-        outputs = model(inputs)
+        outputs = clf(inputs)
         _, predicted = torch.max(outputs.data, 1)  # Get the index of the max log-probability
+        predictions.append(predicted.numpy())
+        targets_list.append(targets.numpy())
         logit_scores.append(outputs.data)
         total += targets.size(0)
         correct += (predicted == targets).sum().item()
@@ -700,34 +1210,20 @@ with torch.no_grad():  # No need to track gradients for validation
 accuracy = correct / total
 print(f'Accuracy of the model on the test set: {accuracy * 100:.2f}%')
 
+predictions = np.concatenate((predictions), axis = 0)
+targets_list = np.concatenate((targets_list), axis = 0)
 
 logit_scores = torch.cat(logit_scores)
-
+probabilities = F.softmax(logit_scores, dim=1).detach().numpy()
 
 # =============================================================================
 # Calculate Confusion Matrix
 # =============================================================================
 
-
 from sklearn.metrics import confusion_matrix
 
-# Assuming 'model' is your trained PyTorch model and 'data_loader' is your DataLoader
-
-model.eval()  # Set the model to evaluation mode
-all_predictions = []
-all_labels = []
-
-with torch.no_grad():  # No need to track gradients
-    for inputs, labs in train_loader:
-        outputs = model(inputs)
-        _, predicted = torch.max(outputs, 1)
-
-        # Collect the predictions and actual labels
-        all_predictions.extend(predicted.cpu().numpy())
-        all_labels.extend(labs.cpu().numpy())
-
 # Compute the confusion matrix
-cm = confusion_matrix(all_labels, all_predictions)
+cm = confusion_matrix(targets_list, predictions)
 
 import seaborn as sns
 
@@ -830,8 +1326,80 @@ def top_k_accuracy(y_true, y_pred, k=5):
 y_true = torch.tensor([2, 3, 1, 0, 4])  # Example true labels
 y_pred = torch.randn(5, 10)  # Example predictions (random in this case)
 
-k_value = 2
-accuracy = top_k_accuracy(mapped_labels, logit_scores, k=k_value)
+k_value = 1
+accuracy = top_k_accuracy(torch.tensor(targets_list), torch.tensor(probabilities), k=k_value)
 print(f"Top-{k_value} accuracy: {accuracy * 100:.2f}%")
+
+
+
+# For the committee presentation, let's see how normalized similarlity scores change as a function of temperature
+
+cosine_sim = np.linspace(0.001,1,1000)
+
+tau_value = [0.02, 0.5, 1.0]
+
+normalized_sim = []
+
+for i in np.arange(len(tau_value)):
+    normalized_sim.append(np.exp(cosine_sim/tau_value[i]))
+    
+plt.figure()
+plt.title("Scaled Cosine Similarity Scores")
+plt.plot(cosine_sim, normalized_sim[0], label = f'Temperature = {tau_value[0]}', color = 'blue', linewidth = 2)
+plt.plot(cosine_sim, normalized_sim[2], label = f'Temperature = {tau_value[2]}', color = 'green', linewidth = 2)
+plt.xlabel("Cosine Similarity")
+plt.ylabel("Scaled Similarity")
+plt.legend()
+plt.show()
+
+
+# # Extract the learned positive and negative similarity scores
+
+# model.eval()
+
+# for batch_data in enumerate(zip(*dataloader_list_test)):
+#     data_list = []
+#     label_list = []
+#     a = batch_data[1]
+#     for idx in np.arange(len(a)):
+#         data_list.append(a[idx][0])
+    
+# # for batch_idx, ((data1, labels1), (data2, labels2)) in enumerate(contrastive_loader):
+#     data = torch.cat((data_list), dim = 0)
+#     data = data.unsqueeze(1)
+#     # data = data.reshape(a[idx][0].shape[0], len(a), a[idx][0].shape[1], a[idx][0].shape[2])
+#     # labels = labels1
+#     if torch.cuda.is_available():
+#         data = data.cuda()
+#     data = torch.autograd.Variable(data,False)
+#     bsz = a[idx][0].shape[0]
+#     data = data.to(torch.float32)
+#     features = model(data)
+#     norm = features.norm(p=2, dim=1, keepdim=True)
+#     epsilon = 1e-12
+#     # Add a small epsilon to prevent division by zero
+#     normalized_tensor = features / (norm + epsilon)
+#     split_features = torch.split(normalized_tensor, [bsz]*len(a), dim=0)
+#     split_features = [split.unsqueeze(1) for split in split_features]
+
+#     validation_features = torch.cat(split_features, dim = 1)
+
+#     validation_loss, validation_negative_similarities, validation_positive_similarities = criterion(validation_features)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
