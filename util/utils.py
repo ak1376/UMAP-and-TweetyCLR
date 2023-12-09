@@ -163,6 +163,8 @@ class Tweetyclr:
         self.mean_colors_per_minispec = mean_colors_per_minispec
         self.stacked_window_times = stacked_window_times
         self.masked_frequencies = masked_frequencies
+        self.stacked_specs = stacked_specs
+        self.stacked_labels = stacked_labels
         # self.dict_of_spec_slices_with_slice_number = dict_of_spec_slices_with_slice_number
 
 

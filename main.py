@@ -9,7 +9,8 @@ Created on Wed Nov 15 14:40:41 2023
 import numpy as np
 import torch
 import sys
-sys.path.append('/home/akapoor/Dropbox (University of Oregon)/Kapoor_Ananya/01_Projects/01_b_Canary_SSL/TweetyCLR/')
+filepath = '/home/akapoor'
+sys.path.append(f'{filepath}/Dropbox (University of Oregon)/Kapoor_Ananya/01_Projects/01_b_Canary_SSL/TweetyCLR/')
 from util import MetricMonitor, SupConLoss
 from util import Tweetyclr, Temporal_Augmentation, TwoCropTransform, Custom_Contrastive_Dataset
 import torch.nn as nn
@@ -20,6 +21,9 @@ from torch.utils.data import DataLoader, TensorDataset
 import umap
 import matplotlib.pyplot as plt
 import torch.optim as optim
+import matplotlib.colors as mcolors
+import matplotlib.cm as cm
+
 plt.rcParams.update({'font.size': 20})
 plt.rcParams['figure.figsize'] = [15, 15]  # width and height should be in inches, e.g., [10, 6]
 
@@ -206,13 +210,17 @@ def pretraining(epoch, model, contrastive_loader_train, contrastive_loader_test,
 # =============================================================================
 #     # Set data parameters
 # =============================================================================
-bird_dir = '/home/akapoor/Dropbox (University of Oregon)/Kapoor_Ananya/01_Projects/01_a_Rotations/Gardner_Lab/Canary_Data/llb16_data_matrices/'
+
+bird_dir = f'{filepath}/Dropbox (University of Oregon)/Kapoor_Ananya/01_Projects/01_a_Rotations/Gardner_Lab/Canary_Data/llb16_data_matrices/'
+# bird_dir = '/home/akapoor/Dropbox (University of Oregon)/Kapoor_Ananya/01_Projects/01_a_Rotations/Gardner_Lab/Canary_Data/llb16_data_matrices/'
 # audio_files = bird_dir+'llb3_songs'
 directory = bird_dir+ 'Python_Files'
-analysis_path = '/home/akapoor/Dropbox (University of Oregon)/Kapoor_Ananya/01_Projects/01_b_Canary_SSL/TweetyCLR_Repo/'
+
+analysis_path = f'{filepath}/Dropbox (University of Oregon)/Kapoor_Ananya/01_Projects/01_b_Canary_SSL/TweetyCLR_Repo/'
+# analysis_path = '/home/akapoor/Dropbox (University of Oregon)/Kapoor_Ananya/01_Projects/01_b_Canary_SSL/TweetyCLR_Repo/'
 
 # Parameters we set
-num_spec = 150
+num_spec = 80
 window_size = 100
 stride = 10
 
@@ -228,7 +236,9 @@ masking_freq_tuple = (500, 7000)
 spec_dim_tuple = (window_size, 151)
 
 
-with open('/home/akapoor/Dropbox (University of Oregon)/Kapoor_Ananya/01_Projects/01_b_Canary_SSL/Canary_SSL_Repo/InfoNCE_Num_Spectrograms_100_Window_Size_100_Stride_10/category_colors.pkl', 'rb') as file:
+
+
+with open(f'{filepath}/Dropbox (University of Oregon)/Kapoor_Ananya/01_Projects/01_b_Canary_SSL/Canary_SSL_Repo/InfoNCE_Num_Spectrograms_100_Window_Size_100_Stride_10/category_colors.pkl', 'rb') as file:
     category_colors = pickle.load(file)
     
 exclude_transitions = False
@@ -260,6 +270,41 @@ simple_tweetyclr.easy_negatives = easy_negatives
 simple_tweetyclr.hard_negatives = hard_negatives 
 
 
+# Let's colorize the entire stacked spectrogram by the ground truth labels at each point
+
+dx = simple_tweetyclr.stacked_window_times[0,1] - simple_tweetyclr.stacked_window_times[0,0] 
+
+stacked_times = dx*np.arange(simple_tweetyclr.stacked_specs.shape[1])
+stacked_times = stacked_times.reshape(1, stacked_times.shape[0])
+
+dat = np.load('/home/akapoor/Dropbox (University of Oregon)/Kapoor_Ananya/01_Projects/01_a_Rotations/Gardner_Lab/Canary_Data/llb16_data_matrices/Python_Files/llb16_0032_2018_05_03_18_22_58.wav.npz')
+freq = dat['f']
+
+# Let's get rid of higher order frequencies
+mask = (freq<7000)&(freq>500)
+masked_frequencies = freq[mask].reshape(151,1)
+
+# rgb_array = np.array([category_colors[label] for label in simple_tweetyclr.stacked_labels.reshape(simple_tweetyclr.stacked_labels.shape[0],)])
+
+# # Assuming rgb_array is an array of RGB tuples
+# # For example: rgb_array = np.array([(255, 0, 0), (0, 255, 0), ...]) / 255.0
+# # Make sure rgb_array is normalized (values between 0 and 1)
+
+# # Create a custom colormap
+# cmap = mcolors.ListedColormap(rgb_array)
+
+# # Normalize the data
+# norm = mcolors.Normalize(vmin=0, vmax=len(rgb_array)-1)
+
+# # Create a ScalarMappable with the colormap
+# smappable = cm.ScalarMappable(norm=norm, cmap=cmap)
+
+# fig, ax = plt.subplots()
+# pcolormesh_plot = ax.pcolormesh(stacked_times, masked_frequencies, simple_tweetyclr.stacked_specs, cmap = 'jet')
+
+# cbar = plt.colorbar(smappable, ax=ax, orientation='horizontal')
+
+# plt.show()
 
 # Let's do raw umap
 
@@ -284,7 +329,6 @@ plt.ylabel("UMAP 2")
 plt.title(f'Total Slices: {embed.shape[0]}')
 plt.savefig(f'{simple_tweetyclr.folder_name}/Plots/UMAP_of_all_slices.png')
 plt.show()
-
 
 # save the umap embedding for easy future loading
 # np.save('/home/akapoor/Desktop/embed.npy', embed)
@@ -338,236 +382,236 @@ simple_tweetyclr.plot_UMAP_embedding(embed, simple_tweetyclr.mean_colors_per_min
 #  VAE BENCHMARKING ON CONFUSED REGION
 # =============================================================================
 
-latent_dims = 32
-num_epochs = 100 #usually 100
-batch_size = 32
-learning_rate = 1e-3
-variational_beta = 1
-use_gpu = True
+# latent_dims = 32
+# num_epochs = 100 #usually 100
+# batch_size = 32
+# learning_rate = 1e-3
+# variational_beta = 1
+# use_gpu = True
 
-class Encoder_VAE(nn.Module):
-    def __init__(self):
-        super(Encoder_VAE, self).__init__()
-        self.batchNorm1 = nn.BatchNorm2d(1)
-        self.conv1 = nn.Conv2d(1, 8, 3, 1, padding=1)
-        self.batchNorm2 = nn.BatchNorm2d(8)
-        self.conv2 = nn.Conv2d(8, 8, 3, 2, padding=1)
-        self.batchNorm3 = nn.BatchNorm2d(8)
-        self.conv3 = nn.Conv2d(8,16,3, 1, padding=1)
-        self.batchNorm4 = nn.BatchNorm2d(16)
-        self.conv4 = nn.Conv2d(16,16,3,2, padding=1)
-        self.batchNorm5 = nn.BatchNorm2d(16)
-        self.conv5 = nn.Conv2d(16,24,3,1, padding=1)
-        self.batchNorm6 = nn.BatchNorm2d(24)
-        self.conv6 = nn.Conv2d(24,24,3,2, padding=1)
-        self.batchNorm7 = nn.BatchNorm2d(24)
-        self.conv7 = nn.Conv2d(24,32,3,1, padding=1)
-        self.flatten = nn.Flatten()
-        self.fc1 = nn.Linear(7904, 1024)
-        self.fc2 = nn.Linear(1024, 256)
-        self.fc3 = nn.Linear(256, 64)
+# class Encoder_VAE(nn.Module):
+#     def __init__(self):
+#         super(Encoder_VAE, self).__init__()
+#         self.batchNorm1 = nn.BatchNorm2d(1)
+#         self.conv1 = nn.Conv2d(1, 8, 3, 1, padding=1)
+#         self.batchNorm2 = nn.BatchNorm2d(8)
+#         self.conv2 = nn.Conv2d(8, 8, 3, 2, padding=1)
+#         self.batchNorm3 = nn.BatchNorm2d(8)
+#         self.conv3 = nn.Conv2d(8,16,3, 1, padding=1)
+#         self.batchNorm4 = nn.BatchNorm2d(16)
+#         self.conv4 = nn.Conv2d(16,16,3,2, padding=1)
+#         self.batchNorm5 = nn.BatchNorm2d(16)
+#         self.conv5 = nn.Conv2d(16,24,3,1, padding=1)
+#         self.batchNorm6 = nn.BatchNorm2d(24)
+#         self.conv6 = nn.Conv2d(24,24,3,2, padding=1)
+#         self.batchNorm7 = nn.BatchNorm2d(24)
+#         self.conv7 = nn.Conv2d(24,32,3,1, padding=1)
+#         self.flatten = nn.Flatten()
+#         self.fc1 = nn.Linear(7904, 1024)
+#         self.fc2 = nn.Linear(1024, 256)
+#         self.fc3 = nn.Linear(256, 64)
         
-        self.fc_mu = nn.Linear(in_features=64, out_features=latent_dims)
-        self.fc_logvar = nn.Linear(in_features=64, out_features=latent_dims)
+#         self.fc_mu = nn.Linear(in_features=64, out_features=latent_dims)
+#         self.fc_logvar = nn.Linear(in_features=64, out_features=latent_dims)
             
-    def forward(self, x):
-        x = F.relu(self.conv1(self.batchNorm1(x)))
-        x = F.relu(self.conv2(self.batchNorm2(x)))
-        x = F.relu(self.conv3(self.batchNorm3(x)))
-        x = F.relu(self.conv4(self.batchNorm4(x)))
-        x = F.relu(self.conv5(self.batchNorm5(x)))
-        x = F.relu(self.conv6(self.batchNorm6(x)))
-        x = F.relu(self.conv7(self.batchNorm7(x)))
+#     def forward(self, x):
+#         x = F.relu(self.conv1(self.batchNorm1(x)))
+#         x = F.relu(self.conv2(self.batchNorm2(x)))
+#         x = F.relu(self.conv3(self.batchNorm3(x)))
+#         x = F.relu(self.conv4(self.batchNorm4(x)))
+#         x = F.relu(self.conv5(self.batchNorm5(x)))
+#         x = F.relu(self.conv6(self.batchNorm6(x)))
+#         x = F.relu(self.conv7(self.batchNorm7(x)))
 
-        x = self.flatten(x)
+#         x = self.flatten(x)
 
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
-        x = F.relu(self.fc3(x))
+#         x = F.relu(self.fc1(x))
+#         x = F.relu(self.fc2(x))
+#         x = F.relu(self.fc3(x))
 
-        x_mu = self.fc_mu(x)
-        x_logvar = self.fc_logvar(x)
+#         x_mu = self.fc_mu(x)
+#         x_logvar = self.fc_logvar(x)
 
-        return x_mu, x_logvar
+#         return x_mu, x_logvar
 
-class Decoder_VAE(nn.Module):
-    def __init__(self):
-        super(Decoder_VAE, self).__init__()
-        self.fc1 = nn.Linear(in_features=latent_dims, out_features=64)
-        self.fc2 = nn.Linear(in_features=64, out_features=256)
-        self.fc3 = nn.Linear(in_features=256, out_features=1024)
-        self.fc4 = nn.Linear(in_features=1024, out_features=7904)
-        self.unflatten = nn.Unflatten(1, (32, 13, 19))
+# class Decoder_VAE(nn.Module):
+#     def __init__(self):
+#         super(Decoder_VAE, self).__init__()
+#         self.fc1 = nn.Linear(in_features=latent_dims, out_features=64)
+#         self.fc2 = nn.Linear(in_features=64, out_features=256)
+#         self.fc3 = nn.Linear(in_features=256, out_features=1024)
+#         self.fc4 = nn.Linear(in_features=1024, out_features=7904)
+#         self.unflatten = nn.Unflatten(1, (32, 13, 19))
 
-        self.conv1 = nn.ConvTranspose2d(32,24,3,1,padding=1)
-        self.conv2 = nn.ConvTranspose2d(24,24,3,2,padding=1, output_padding = (0,1))
-        self.conv3 = nn.ConvTranspose2d(24, 16, 3, 1, padding=1)
-        self.conv4 = nn.ConvTranspose2d(16,16,3,2,padding=1,output_padding=1)
-        self.conv5 = nn.ConvTranspose2d(16,8,3,1,padding=1)
-        self.conv6 = nn.ConvTranspose2d(8, 8, 3, 2, padding=1, output_padding=(1, 0))
-        self.conv7 = nn.ConvTranspose2d(8, 1, 3, 1, padding=1)
-        self.batchNorm1 = nn.BatchNorm2d(32)
-        self.batchNorm2 = nn.BatchNorm2d(24)
-        self.batchNorm3 = nn.BatchNorm2d(24)
-        self.batchNorm4 = nn.BatchNorm2d(16)
-        self.batchNorm5 = nn.BatchNorm2d(16)
-        self.batchNorm6 = nn.BatchNorm2d(8)
-        self.batchNorm7 = nn.BatchNorm2d(8)
+#         self.conv1 = nn.ConvTranspose2d(32,24,3,1,padding=1)
+#         self.conv2 = nn.ConvTranspose2d(24,24,3,2,padding=1, output_padding = (0,1))
+#         self.conv3 = nn.ConvTranspose2d(24, 16, 3, 1, padding=1)
+#         self.conv4 = nn.ConvTranspose2d(16,16,3,2,padding=1,output_padding=1)
+#         self.conv5 = nn.ConvTranspose2d(16,8,3,1,padding=1)
+#         self.conv6 = nn.ConvTranspose2d(8, 8, 3, 2, padding=1, output_padding=(1, 0))
+#         self.conv7 = nn.ConvTranspose2d(8, 1, 3, 1, padding=1)
+#         self.batchNorm1 = nn.BatchNorm2d(32)
+#         self.batchNorm2 = nn.BatchNorm2d(24)
+#         self.batchNorm3 = nn.BatchNorm2d(24)
+#         self.batchNorm4 = nn.BatchNorm2d(16)
+#         self.batchNorm5 = nn.BatchNorm2d(16)
+#         self.batchNorm6 = nn.BatchNorm2d(8)
+#         self.batchNorm7 = nn.BatchNorm2d(8)
 
-    def forward(self, x):
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
-        x = F.relu(self.fc3(x))
-        x = F.relu(self.fc4(x))
+#     def forward(self, x):
+#         x = F.relu(self.fc1(x))
+#         x = F.relu(self.fc2(x))
+#         x = F.relu(self.fc3(x))
+#         x = F.relu(self.fc4(x))
         
-        x = self.unflatten(x)
+#         x = self.unflatten(x)
 
-        x = F.relu(self.conv1(self.batchNorm1(x)))
-        x = F.relu(self.conv2(self.batchNorm2(x)))
-        x = F.relu(self.conv3(self.batchNorm3(x)))
-        x = F.relu(self.conv4(self.batchNorm4(x)))
-        x = F.relu(self.conv5(self.batchNorm5(x)))
-        x = F.relu(self.conv6(self.batchNorm6(x)))
-        x = F.relu(self.conv7(self.batchNorm7(x)))
+#         x = F.relu(self.conv1(self.batchNorm1(x)))
+#         x = F.relu(self.conv2(self.batchNorm2(x)))
+#         x = F.relu(self.conv3(self.batchNorm3(x)))
+#         x = F.relu(self.conv4(self.batchNorm4(x)))
+#         x = F.relu(self.conv5(self.batchNorm5(x)))
+#         x = F.relu(self.conv6(self.batchNorm6(x)))
+#         x = F.relu(self.conv7(self.batchNorm7(x)))
 
-        x = F.relu(x) # last layer before output is sigmoid, since we are using BCE as reconstruction loss
+#         x = F.relu(x) # last layer before output is sigmoid, since we are using BCE as reconstruction loss
 
-        return x
+#         return x
 
 
-## the code below was heavily inspired by a VAE tutorial, but I can't find it and thus can't credit it :(
-class VariationalAutoencoder(nn.Module):
-    def __init__(self):
-        super(VariationalAutoencoder, self).__init__()
-        self.encoder = Encoder_VAE()
-        self.decoder = Decoder_VAE()
+# ## the code below was heavily inspired by a VAE tutorial, but I can't find it and thus can't credit it :(
+# class VariationalAutoencoder(nn.Module):
+#     def __init__(self):
+#         super(VariationalAutoencoder, self).__init__()
+#         self.encoder = Encoder_VAE()
+#         self.decoder = Decoder_VAE()
     
-    def forward(self, x):
-        latent_mu, latent_logvar = self.encoder(x)
+#     def forward(self, x):
+#         latent_mu, latent_logvar = self.encoder(x)
 
-        latent = self.latent_sample(latent_mu, latent_logvar)
+#         latent = self.latent_sample(latent_mu, latent_logvar)
 
-        x_recon = self.decoder(latent)
+#         x_recon = self.decoder(latent)
 
-        return x_recon, latent_mu, latent_logvar
+#         return x_recon, latent_mu, latent_logvar
     
-    def latent_sample(self, mu, logvar):
-        if self.training:
-            # the reparameterization trick
-            std = logvar.mul(0.5).exp_()
-            eps = torch.empty_like(std).normal_()
-            return eps.mul(std).add_(mu)
-        else:
-            return mu
+#     def latent_sample(self, mu, logvar):
+#         if self.training:
+#             # the reparameterization trick
+#             std = logvar.mul(0.5).exp_()
+#             eps = torch.empty_like(std).normal_()
+#             return eps.mul(std).add_(mu)
+#         else:
+#             return mu
     
-def vae_loss(recon_x, x, mu, logvar):
-    flatten = nn.Flatten()
-    flattened_recon = flatten(recon_x)
-    flattened_x = flatten(x)
-    recon_loss = F.mse_loss(flattened_recon, flattened_x, reduction='sum')
-    kldivergence = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
+# def vae_loss(recon_x, x, mu, logvar):
+#     flatten = nn.Flatten()
+#     flattened_recon = flatten(recon_x)
+#     flattened_x = flatten(x)
+#     recon_loss = F.mse_loss(flattened_recon, flattened_x, reduction='sum')
+#     kldivergence = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
     
-    return recon_loss + kldivergence * variational_beta
+#     return recon_loss + kldivergence * variational_beta
     
     
-vae = VariationalAutoencoder()
+# vae = VariationalAutoencoder()
 
-device = torch.device("cuda:0" if use_gpu and torch.cuda.is_available() else "cpu")
-vae = vae.to(device)
+# device = torch.device("cuda:0" if use_gpu and torch.cuda.is_available() else "cpu")
+# vae = vae.to(device)
 
-num_params = sum(p.numel() for p in vae.parameters() if p.requires_grad)
-print('Number of parameters: %d' % num_params)
+# num_params = sum(p.numel() for p in vae.parameters() if p.requires_grad)
+# print('Number of parameters: %d' % num_params)
     
-## Create the training dataloader for VAE
+# ## Create the training dataloader for VAE
 
-hard_stacked_windows = simple_tweetyclr.stacked_windows[hard_indices,:]
+# hard_stacked_windows = simple_tweetyclr.stacked_windows[hard_indices,:]
 
-hard_dataset = TensorDataset(torch.tensor(hard_stacked_windows.reshape(hard_stacked_windows.shape[0], 1, simple_tweetyclr.time_dim, simple_tweetyclr.freq_dim)))
-hard_dataloader = DataLoader(hard_dataset, batch_size=batch_size , shuffle=False)
+# hard_dataset = TensorDataset(torch.tensor(hard_stacked_windows.reshape(hard_stacked_windows.shape[0], 1, simple_tweetyclr.time_dim, simple_tweetyclr.freq_dim)))
+# hard_dataloader = DataLoader(hard_dataset, batch_size=batch_size , shuffle=False)
 
-optimizer = torch.optim.Adam(params=vae.parameters(), lr=learning_rate, weight_decay=1e-5)
+# optimizer = torch.optim.Adam(params=vae.parameters(), lr=learning_rate, weight_decay=1e-5)
 
-# set to training mode
-vae.train()
+# # set to training mode
+# vae.train()
 
-train_loss_for_plot = []
+# train_loss_for_plot = []
 
-print('Training ...')
-for epoch in range(num_epochs):
-    # print('Epoch %d/%d' % (epoch+1, num_epochs))
+# print('Training ...')
+# for epoch in range(num_epochs):
+#     # print('Epoch %d/%d' % (epoch+1, num_epochs))
 
-    train_loss_avg = []
+#     train_loss_avg = []
     
-    for spec in hard_dataloader:
-        # spec = spec[0].to(torch.float32).to(device)
-        spec = spec[0].to(torch.float32).to(device)
+#     for spec in hard_dataloader:
+#         # spec = spec[0].to(torch.float32).to(device)
+#         spec = spec[0].to(torch.float32).to(device)
         
-        # vae reconstruction
-        image_batch_recon, latent_mu, latent_logvar = vae(spec)
+#         # vae reconstruction
+#         image_batch_recon, latent_mu, latent_logvar = vae(spec)
     
-        # reconstruction error
-        loss = vae_loss(image_batch_recon, spec, latent_mu, latent_logvar)
+#         # reconstruction error
+#         loss = vae_loss(image_batch_recon, spec, latent_mu, latent_logvar)
         
-        # backpropagation
-        optimizer.zero_grad()
-        loss.backward()
+#         # backpropagation
+#         optimizer.zero_grad()
+#         loss.backward()
         
-        # one step of the optmizer (using the gradients from backpropagation)
-        optimizer.step()
+#         # one step of the optmizer (using the gradients from backpropagation)
+#         optimizer.step()
         
-        train_loss_avg.append(loss.item())
+#         train_loss_avg.append(loss.item())
         
-    print(f'Epoch: {epoch}')
-    print(f"train loss: {np.mean(train_loss_avg)}")
+#     print(f'Epoch: {epoch}')
+#     print(f"train loss: {np.mean(train_loss_avg)}")
 
-    train_loss_for_plot.append(np.mean(train_loss_avg))
+#     train_loss_for_plot.append(np.mean(train_loss_avg))
 
-plt.figure();
-plt.plot(train_loss_for_plot, label='train loss');
-plt.show()
+# plt.figure();
+# plt.plot(train_loss_for_plot, label='train loss');
+# plt.show()
 
-import pandas as pd
+# import pandas as pd
 
-# contains a list of batches which contain the latent space variables
-list_of_latent_averages = []
-list_of_images = []
+# # contains a list of batches which contain the latent space variables
+# list_of_latent_averages = []
+# list_of_images = []
 
-for image_batch in hard_dataloader:
-    image_batch = image_batch[0].to(torch.float32).to(device)
+# for image_batch in hard_dataloader:
+#     image_batch = image_batch[0].to(torch.float32).to(device)
 
-    # returns tuple of average and std of latent space in that order
-    output = vae.encoder(image_batch)
-    output = output[0]
+#     # returns tuple of average and std of latent space in that order
+#     output = vae.encoder(image_batch)
+#     output = output[0]
 
-    # for the visualization
-    image_batch.squeeze_(1)
+#     # for the visualization
+#     image_batch.squeeze_(1)
 
-    # convert to numpy array
-    output = output.cpu()
-    output = output.detach().numpy()
-    image_batch = image_batch.cpu()
-    image_batch = image_batch.detach().numpy()
+#     # convert to numpy array
+#     output = output.cpu()
+#     output = output.detach().numpy()
+#     image_batch = image_batch.cpu()
+#     image_batch = image_batch.detach().numpy()
 
-    for latent_vector in output:
-        list_of_latent_averages.append(latent_vector)
+#     for latent_vector in output:
+#         list_of_latent_averages.append(latent_vector)
 
-    for image in image_batch:
-        list_of_images.append(image)
+#     for image in image_batch:
+#         list_of_images.append(image)
 
 
-# convert list of latent averages to a numpy array
-list_of_latent_averages = np.array(list_of_latent_averages)
-list_of_images = np.array(list_of_images)
+# # convert list of latent averages to a numpy array
+# list_of_latent_averages = np.array(list_of_latent_averages)
+# list_of_images = np.array(list_of_images)
 
-reducer = umap.UMAP(metric = 'cosine')
-embed = reducer.fit_transform(list_of_latent_averages)
+# reducer = umap.UMAP(metric = 'cosine')
+# embed = reducer.fit_transform(list_of_latent_averages)
 
-plt.figure()
-plt.title("UMAP Projection of the VAE Latent Embedding")
-plt.xlabel("UMAP 1")
-plt.ylabel("UMAP 2")
-plt.scatter(embed[:,0], embed[:,1], c = simple_tweetyclr.mean_colors_per_minispec[hard_indices,:])
-plt.show()
+# plt.figure()
+# plt.title("UMAP Projection of the VAE Latent Embedding")
+# plt.xlabel("UMAP 1")
+# plt.ylabel("UMAP 2")
+# plt.scatter(embed[:,0], embed[:,1], c = simple_tweetyclr.mean_colors_per_minispec[hard_indices,:])
+# plt.show()
 
 # =============================================================================
 # # Hand select negative samples
@@ -917,7 +961,7 @@ model_rep_list_trained = []
 # Iterate over the DataLoaders
 with torch.no_grad():  # Disable gradient computation for efficiency
     # for data_loader in dataloader_list:
-    for batch_idx, (data) in enumerate(hard_dataloader_train):
+    for batch_idx, (data) in enumerate(hard_dataloader):
         data = data[0].to(torch.float32)
         features = original_model(data)
         model_rep_list_trained.append(features)
@@ -935,40 +979,108 @@ trained_rep_umap = reducer.fit_transform(model_rep_trained.clone().detach().nump
 
 plt.figure()
 plt.title("Data UMAP Representation Through the Trained Model")
-plt.scatter(trained_rep_umap[:,0], trained_rep_umap[:,1], c = simple_tweetyclr.mean_colors_per_minispec[hard_indices_train,:])
+plt.scatter(trained_rep_umap[:,0], trained_rep_umap[:,1], c = simple_tweetyclr.mean_colors_per_minispec[hard_indices,:])
 plt.xlabel("UMAP 1")
 plt.ylabel("UMAP 2")
 plt.savefig(f'{simple_tweetyclr.folder_name}/UMAP_of_trained_model.png')
 plt.show()
 
+# =============================================================================
+# # NOW I WANT TO GET THE INDICES OF THE INTERMIXED SLICES FROM THE CONFUSED REGION
+# =============================================================================
 
-# NOW FOR TESTING DATA
 
-# Initialize lists to store features and labels
-model_rep_list_trained_validation = []
+# Get current axes
+ax = plt.gca()
+# Get current limits
+xlim = ax.get_xlim()
+ylim = ax.get_ylim()
 
-# Iterate over the DataLoaders
-with torch.no_grad():  # Disable gradient computation for efficiency
-    # for data_loader in dataloader_list:
-    for batch_idx, (data) in enumerate(hard_dataloader_test):
-        data = data[0].to(torch.float32)
-        features = original_model(data)
-        model_rep_list_trained_validation.append(features)
+intermixed_indices_from_hard = np.where((trained_rep_umap[:,0]>=xlim[0])&(trained_rep_umap[:,0]<=xlim[1]) & (trained_rep_umap[:,1]>=ylim[0]) & (trained_rep_umap[:,1]<=ylim[1]))[0]
 
-# Convert lists to tensors
-model_rep_trained_validation = torch.cat(model_rep_list_trained_validation, dim=0)
+# I now want to get the indices of these intermixed slices from the total dataset, not in terms of the confused training region
 
-reducer = umap.UMAP(metric='cosine')
+intermixed_indices_from_training = hard_indices[intermixed_indices_from_hard]
 
-trained_rep_umap_validation = reducer.fit_transform(model_rep_trained_validation.clone().detach().numpy())
+hard_stacked_times = simple_tweetyclr.stacked_window_times[intermixed_indices_from_training,:]
 
-plt.figure()
-plt.title("Data UMAP Representation Through the Trained Model: Validation Data")
-plt.xlabel("UMAP 1")
-plt.ylabel("UMAP 2")
-plt.scatter(trained_rep_umap_validation[:,0], trained_rep_umap_validation[:,1], c = simple_tweetyclr.mean_colors_per_minispec[hard_indices_test,:])
-plt.savefig(f'{simple_tweetyclr.folder_name}/UMAP_of_trained_model_validation_data.png')
+# I want to get the indices where stacked_times intersects with hard_stacked_times
+
+intersection_list = []
+for i in np.arange(hard_stacked_times.shape[0]):
+    indices = np.where(np.in1d(stacked_times, hard_stacked_times[i,:]))[0]
+    intersection_list.append(indices)
+
+intersection_list = np.concatenate((intersection_list), axis = 0)
+
+subsetted_spec = simple_tweetyclr.stacked_specs[:,intersection_list][:,750:2000]
+subsetted_labels = simple_tweetyclr.stacked_labels[intersection_list,:][750:2000]
+
+
+# # Find indices where label is 4
+# indices_label_4 = np.where(subsetted_labels == 4)[0]
+
+# # Find indices where label is 10
+# indices_label_10 = np.where(subsetted_labels == 10)[0]
+
+# # Randomly select 100 indices for each label
+# random_indices_4 = np.random.choice(indices_label_4, 100, replace=False)
+# random_indices_10 = np.random.choice(indices_label_10, 100, replace=False)
+
+# indices_for_selection = np.concatenate((random_indices_4, random_indices_10))
+
+# subsetted_spec = subsetted_spec[:,indices_for_selection]
+# subsetted_labels = subsetted_labels[indices_for_selection,:]
+
+rgb_array = np.array([category_colors[label] for label in subsetted_labels.reshape(subsetted_labels.shape[0],)])
+
+# # Create a custom colormap
+cmap = mcolors.ListedColormap(rgb_array)
+
+# Normalize the data
+norm = mcolors.Normalize(vmin=0, vmax=len(rgb_array)-1)
+
+# Create a ScalarMappable with the colormap
+smappable = cm.ScalarMappable(norm=norm, cmap=cmap)
+
+
+time_arr = dx*np.arange(subsetted_labels.shape[0])
+
+fig, ax = plt.subplots()
+pcolormesh_plot = ax.pcolormesh(time_arr.reshape(1,1250), masked_frequencies, subsetted_spec, cmap = 'jet')
+
+cbar = plt.colorbar(smappable, ax=ax, orientation='horizontal')
+
 plt.show()
+
+
+# # NOW FOR TESTING DATA
+
+# # Initialize lists to store features and labels
+# model_rep_list_trained_validation = []
+
+# # Iterate over the DataLoaders
+# with torch.no_grad():  # Disable gradient computation for efficiency
+#     # for data_loader in dataloader_list:
+#     for batch_idx, (data) in enumerate(hard_dataloader_test):
+#         data = data[0].to(torch.float32)
+#         features = original_model(data)
+#         model_rep_list_trained_validation.append(features)
+
+# # Convert lists to tensors
+# model_rep_trained_validation = torch.cat(model_rep_list_trained_validation, dim=0)
+
+# reducer = umap.UMAP(metric='cosine')
+
+# trained_rep_umap_validation = reducer.fit_transform(model_rep_trained_validation.clone().detach().numpy())
+
+# plt.figure()
+# plt.title("Data UMAP Representation Through the Trained Model: Validation Data")
+# plt.xlabel("UMAP 1")
+# plt.ylabel("UMAP 2")
+# plt.scatter(trained_rep_umap_validation[:,0], trained_rep_umap_validation[:,1], c = simple_tweetyclr.mean_colors_per_minispec[hard_indices_test,:])
+# plt.savefig(f'{simple_tweetyclr.folder_name}/UMAP_of_trained_model_validation_data.png')
+# plt.show()
 
 
 plt.figure()
@@ -981,8 +1093,8 @@ plt.legend()
 plt.savefig(f'{simple_tweetyclr.folder_name}/loss_curves.png')
 plt.show()
 
-simple_tweetyclr.plot_UMAP_embedding(trained_rep_umap,  simple_tweetyclr.mean_colors_per_minispec[hard_indices_train,:], embeddable_images_train, f'{simple_tweetyclr.folder_name}/Plots/UMAP_of_trained_model.html', saveflag = True)
-simple_tweetyclr.plot_UMAP_embedding(trained_rep_umap_validation,  simple_tweetyclr.mean_colors_per_minispec[hard_indices_test,:], embeddable_images_test, f'{simple_tweetyclr.folder_name}/Plots/UMAP_of_trained_model_testing.html', saveflag = True)
+# simple_tweetyclr.plot_UMAP_embedding(trained_rep_umap,  simple_tweetyclr.mean_colors_per_minispec[hard_indices_train,:], embeddable_images_train, f'{simple_tweetyclr.folder_name}/Plots/UMAP_of_trained_model.html', saveflag = True)
+# simple_tweetyclr.plot_UMAP_embedding(trained_rep_umap_validation,  simple_tweetyclr.mean_colors_per_minispec[hard_indices_test,:], embeddable_images_test, f'{simple_tweetyclr.folder_name}/Plots/UMAP_of_trained_model_testing.html', saveflag = True)
 
 # =============================================================================
 # # DOWNSTREAM EVALUATION
@@ -1044,47 +1156,10 @@ plt.savefig(f'{simple_tweetyclr.folder_name}/hdbscan_plot_UMAP_training_data.png
 plt.show()
 
 
+# =============================================================================
+# 
+# =============================================================================
 
-
-
-# Number of splits for K-Fold
-n_splits = 10
-
-# Range of the number of clusters
-cluster_range = range(2, 10)
-
-simple_tweetyclr.downstream_clustering(X, n_splits, cluster_range)
-
-# plt.figure()
-# plt.scatter(X[:,0], X[:,1], c=clusterer.labels_, cmap='Spectral', s=50)
-# plt.title("HDBSCAN Clustering")
-# plt.show()
-
-
-
-# Validation data
-X = trained_rep_umap_validation.copy()
-
-clusterer = hdbscan.HDBSCAN(min_cluster_size=100, gen_min_span_tree=True)
-# Get the cluster labels
-
-clusterer.fit(X)
-
-# Get the cluster labels
-labels = clusterer.labels_
-
-# Number of clusters (excluding noise points)
-n_clusters = len(set(labels)) - (1 if -1 in labels else 0)
-
-print("Number of clusters:", n_clusters)
-
-plt.figure()
-plt.scatter(X[:,0], X[:,1], c=clusterer.labels_, cmap='viridis', s=50)
-plt.title("HDBSCAN Clustering of Trained UMAP+TweetyCLR Representation of Validation Data")
-plt.xlabel("UMAP 1")
-plt.ylabel("UMAP 2")
-plt.savefig(f'{simple_tweetyclr.folder_name}/hdbscan_plot_trained_model_validation_data.png')
-plt.show()
 
 
 
@@ -1094,297 +1169,343 @@ plt.show()
 
 
 # # Number of splits for K-Fold
-# n_splits = 5
+# n_splits = 10
 
 # # Range of the number of clusters
 # cluster_range = range(2, 10)
 
 # simple_tweetyclr.downstream_clustering(X, n_splits, cluster_range)
 
-
-# Let's do supervised classification on non-transition slices only
-X = model_rep_trained.clone().detach().cpu().numpy()
-
-# Store indices of rows with 3 or more unique labels
-transition_slice_indices = []
-
-for i, row in enumerate(stacked_labels_train):
-    if len(np.unique(row)) >= 3:
-        transition_slice_indices.append(i)
-
-transition_slices_indices = np.array(transition_slice_indices)
-
-X = np.delete(X, transition_slice_indices, axis = 0)
-# X = np.delete(trained_rep_umap, transition_slice_indices, axis = 0)
-labels = np.delete(stacked_labels_train, transition_slice_indices, axis = 0)
-mcpm = np.delete(simple_tweetyclr.mean_colors_per_minispec[hard_indices_train,:], transition_slice_indices, axis = 0)
-
-# Function to find the first nonzero element in each row
-def first_nonzero(arr, axis, invalid_val=-1):
-    mask = arr != 0
-    return np.where(mask.any(axis=axis), mask.argmax(axis=axis), invalid_val)
-
-# Extract first nonzero element from each row
-first_nonzero_indices = first_nonzero(labels, axis=1)
-first_nonzero_elements = [labels[i, idx] if idx >= 0 else None for i, idx in enumerate(first_nonzero_indices)]
-
-first_nonzero_elements = [0 if x is None else x for x in first_nonzero_elements]
-
-labels = np.array(first_nonzero_elements)
-
-# # test case: delete everything that is not the top 2 categories
-# to_delete = np.where((labels != 13) & (labels != 2))[0]
-
-# X = np.delete(X, to_delete, axis = 0)
-# labels = np.delete(labels, to_delete, axis = 0)
-
-X = torch.tensor(X)
-labels = torch.tensor(labels)
-
-# Create a mapping from original labels to a range 0 to N-1
-unique_labels = torch.unique(labels)
-label_to_idx = {label.item(): idx for idx, label in enumerate(unique_labels)}
-
-# Map labels to consecutive indices
-mapped_labels = torch.tensor([label_to_idx[label.item()] for label in labels])
-
-# Create DataLoader
-dataset = TensorDataset(X, mapped_labels)
-train_loader = DataLoader(dataset, batch_size=16, shuffle=True)
-
-class LinearClassifier(nn.Module):
-    def __init__(self, input_size, num_classes):
-        super(LinearClassifier, self).__init__()
-        self.fc = nn.Linear(input_size, num_classes)
-
-    def forward(self, x):
-        return self.fc(x)
-    
-    
-
-# Example usage
-input_size = 320  # Number of input features
-num_classes = unique_labels.shape[0]  # Number of classes (change as needed)
-
-clf = LinearClassifier(input_size, num_classes)
-# Loss function and optimizer
-loss_function = nn.CrossEntropyLoss()
-optimizer = optim.Adam(clf.parameters(), lr=0.01)
-
-loss_list = []
-# Training loop
-num_epochs = 100
-for epoch in range(num_epochs):
-    for inputs, targets in train_loader:
-        optimizer.zero_grad()
-        outputs = clf(inputs)
-        loss = loss_function(outputs, targets)
-        loss.backward()
-        optimizer.step()
-        loss_list.append(loss.item())
-
-    print(f'Epoch [{epoch+1}/{num_epochs}], Loss: {loss.item():.4f}')
-
-
-# =============================================================================
-# Calculate Accuracy
-# =============================================================================
-
-
-clf.eval()  # Set the model to evaluation mode
-predictions = []
-targets_list = []
-correct = 0
-total = 0
-logit_scores = []
-with torch.no_grad():  # No need to track gradients for validation
-    for inputs, targets in train_loader:
-        outputs = clf(inputs)
-        _, predicted = torch.max(outputs.data, 1)  # Get the index of the max log-probability
-        predictions.append(predicted.numpy())
-        targets_list.append(targets.numpy())
-        logit_scores.append(outputs.data)
-        total += targets.size(0)
-        correct += (predicted == targets).sum().item()
-
-accuracy = correct / total
-print(f'Accuracy of the model on the test set: {accuracy * 100:.2f}%')
-
-predictions = np.concatenate((predictions), axis = 0)
-targets_list = np.concatenate((targets_list), axis = 0)
-
-logit_scores = torch.cat(logit_scores)
-probabilities = F.softmax(logit_scores, dim=1).detach().numpy()
-
-# =============================================================================
-# Calculate Confusion Matrix
-# =============================================================================
-
-from sklearn.metrics import confusion_matrix
-
-# Compute the confusion matrix
-cm = confusion_matrix(targets_list, predictions)
-
-import seaborn as sns
-
-# Plotting the confusion matrix
-plt.figure(figsize=(10, 7))
-sns.heatmap(cm, annot=True, fmt='d')
-plt.title('Confusion Matrix')
-plt.ylabel('Actual Labels')
-plt.xlabel('Predicted Labels')
-
-# Optional: If you want to display class labels on the axes
-class_labels = [str(int(label.numpy())) for label in unique_labels]  # Replace with your class labels
-plt.xticks(ticks=np.arange(len(class_labels)) + 0.5, labels=class_labels)
-plt.yticks(ticks=np.arange(len(class_labels)) + 0.5, labels=class_labels, rotation=0)
-
-plt.show()
-
-# # =============================================================================
-# # AUC Calculation
-# # =============================================================================
-
-# # Assuming 'outputs' is your model's raw output and 'true_labels' are your actual labels
-# logits = logit_scores
-# true_labels = mapped_labels  # Replace with your actual labels
-
-# # Convert logits to probabilities
-# probabilities = F.softmax(logits, dim=1).detach().numpy()
-
-# from sklearn.metrics import roc_auc_score
-
-# # Calculate OvA AUC
-# auc_score = roc_auc_score(true_labels, probabilities, multi_class='ovr')
-
-# print("One-vs-All AUC:", auc_score)
+# # plt.figure()
+# # plt.scatter(X[:,0], X[:,1], c=clusterer.labels_, cmap='Spectral', s=50)
+# # plt.title("HDBSCAN Clustering")
+# # plt.show()
 
 
 
-# import numpy as np
-# import matplotlib.pyplot as plt
-# from sklearn.metrics import roc_curve, auc
-# from sklearn.preprocessing import label_binarize
+# # Validation data
+# X = trained_rep_umap_validation.copy()
 
-# # Assuming 'y_true' is your true labels and 'y_scores' are the probability scores from your model
-# # 'y_true' should be a 1D array of labels, and 'y_scores' should be a 2D array where each column corresponds to a class
-# n_classes = len(np.unique(mapped_labels))
+# clusterer = hdbscan.HDBSCAN(min_cluster_size=100, gen_min_span_tree=True)
+# # Get the cluster labels
 
-# # Binarize the labels for OvR calculation
-# y_true_binary = label_binarize(mapped_labels, classes=np.arange(n_classes))
+# clusterer.fit(X)
 
-# # Calculate ROC curve and ROC area for each class
-# fpr = dict()
-# tpr = dict()
-# roc_auc = dict()
-# for i in range(n_classes):
-#     fpr[i], tpr[i], _ = roc_curve(y_true_binary[:, i], probabilities[:, i])
-#     roc_auc[i] = auc(fpr[i], tpr[i])
+# # Get the cluster labels
+# labels = clusterer.labels_
 
-# # Plot all ROC curves
-# plt.figure(figsize=(8, 6))
-# colors = iter(plt.cm.rainbow(np.linspace(0, 1, n_classes)))
-# for i, color in zip(range(n_classes), colors):
-#     plt.plot(fpr[i], tpr[i], color=color, lw=2,
-#              label='ROC curve of class {0} (area = {1:0.2f})'
-#              ''.format(i, roc_auc[i]))
+# # Number of clusters (excluding noise points)
+# n_clusters = len(set(labels)) - (1 if -1 in labels else 0)
 
-# plt.plot([0, 1], [0, 1], 'k--', lw=2)
-# plt.xlim([0.0, 1.0])
-# plt.ylim([0.0, 1.05])
-# plt.xlabel('False Positive Rate')
-# plt.ylabel('True Positive Rate')
-# plt.title('Some extension of Receiver operating characteristic to multi-class')
-# plt.legend(loc="lower right")
+# print("Number of clusters:", n_clusters)
+
+# plt.figure()
+# plt.scatter(X[:,0], X[:,1], c=clusterer.labels_, cmap='viridis', s=50)
+# plt.title("HDBSCAN Clustering of Trained UMAP+TweetyCLR Representation of Validation Data")
+# plt.xlabel("UMAP 1")
+# plt.ylabel("UMAP 2")
+# plt.savefig(f'{simple_tweetyclr.folder_name}/hdbscan_plot_trained_model_validation_data.png')
 # plt.show()
 
 
-def top_k_accuracy(y_true, y_pred, k=5):
-    """
-    Calculate top-k accuracy.
+
+
+
+
+
+
+# # # Number of splits for K-Fold
+# # n_splits = 5
+
+# # # Range of the number of clusters
+# # cluster_range = range(2, 10)
+
+# # simple_tweetyclr.downstream_clustering(X, n_splits, cluster_range)
+
+
+# # Let's do supervised classification on non-transition slices only
+# X = model_rep_trained.clone().detach().cpu().numpy()
+
+# # Store indices of rows with 3 or more unique labels
+# transition_slice_indices = []
+
+# for i, row in enumerate(stacked_labels_train):
+#     if len(np.unique(row)) >= 3:
+#         transition_slice_indices.append(i)
+
+# transition_slices_indices = np.array(transition_slice_indices)
+
+# X = np.delete(X, transition_slice_indices, axis = 0)
+# # X = np.delete(trained_rep_umap, transition_slice_indices, axis = 0)
+# labels = np.delete(stacked_labels_train, transition_slice_indices, axis = 0)
+# mcpm = np.delete(simple_tweetyclr.mean_colors_per_minispec[hard_indices_train,:], transition_slice_indices, axis = 0)
+
+# # Function to find the first nonzero element in each row
+# def first_nonzero(arr, axis, invalid_val=-1):
+#     mask = arr != 0
+#     return np.where(mask.any(axis=axis), mask.argmax(axis=axis), invalid_val)
+
+# # Extract first nonzero element from each row
+# first_nonzero_indices = first_nonzero(labels, axis=1)
+# first_nonzero_elements = [labels[i, idx] if idx >= 0 else None for i, idx in enumerate(first_nonzero_indices)]
+
+# first_nonzero_elements = [0 if x is None else x for x in first_nonzero_elements]
+
+# labels = np.array(first_nonzero_elements)
+
+# # # test case: delete everything that is not the top 2 categories
+# # to_delete = np.where((labels != 13) & (labels != 2))[0]
+
+# # X = np.delete(X, to_delete, axis = 0)
+# # labels = np.delete(labels, to_delete, axis = 0)
+
+# X = torch.tensor(X)
+# labels = torch.tensor(labels)
+
+# # Create a mapping from original labels to a range 0 to N-1
+# unique_labels = torch.unique(labels)
+# label_to_idx = {label.item(): idx for idx, label in enumerate(unique_labels)}
+
+# # Map labels to consecutive indices
+# mapped_labels = torch.tensor([label_to_idx[label.item()] for label in labels])
+
+# # Create DataLoader
+# dataset = TensorDataset(X, mapped_labels)
+# train_loader = DataLoader(dataset, batch_size=16, shuffle=True)
+
+# class LinearClassifier(nn.Module):
+#     def __init__(self, input_size, num_classes):
+#         super(LinearClassifier, self).__init__()
+#         self.fc = nn.Linear(input_size, num_classes)
+
+#     def forward(self, x):
+#         return self.fc(x)
     
-    Parameters:
-    y_true (Tensor): True labels.
-    y_pred (Tensor): Predictions from the model. Assumes that predictions are logits or probabilities.
-    k (int): Top k predictions to consider.
     
-    Returns:
-    float: Top-k accuracy.
-    """
-    # Get the top k predictions for each sample
-    top_k_preds = torch.topk(y_pred, k, dim=1).indices
 
-    # Check if the true labels are in the top k predictions
-    correct = top_k_preds.eq(y_true.view(-1, 1).expand_as(top_k_preds))
+# # Example usage
+# input_size = 320  # Number of input features
+# num_classes = unique_labels.shape[0]  # Number of classes (change as needed)
 
-    # Calculate accuracy
-    top_k_accuracy = correct.sum().float() / y_true.size(0)
-    return top_k_accuracy.item()
+# clf = LinearClassifier(input_size, num_classes)
+# # Loss function and optimizer
+# loss_function = nn.CrossEntropyLoss()
+# optimizer = optim.Adam(clf.parameters(), lr=0.01)
 
-# Example usage
-# Assuming y_true are your true labels and y_pred are your model's predictions
-y_true = torch.tensor([2, 3, 1, 0, 4])  # Example true labels
-y_pred = torch.randn(5, 10)  # Example predictions (random in this case)
+# loss_list = []
+# # Training loop
+# num_epochs = 100
+# for epoch in range(num_epochs):
+#     for inputs, targets in train_loader:
+#         optimizer.zero_grad()
+#         outputs = clf(inputs)
+#         loss = loss_function(outputs, targets)
+#         loss.backward()
+#         optimizer.step()
+#         loss_list.append(loss.item())
 
-k_value = 1
-accuracy = top_k_accuracy(torch.tensor(targets_list), torch.tensor(probabilities), k=k_value)
-print(f"Top-{k_value} accuracy: {accuracy * 100:.2f}%")
+#     print(f'Epoch [{epoch+1}/{num_epochs}], Loss: {loss.item():.4f}')
+
+
+# # =============================================================================
+# # Calculate Accuracy
+# # =============================================================================
+
+
+# clf.eval()  # Set the model to evaluation mode
+# predictions = []
+# targets_list = []
+# correct = 0
+# total = 0
+# logit_scores = []
+# with torch.no_grad():  # No need to track gradients for validation
+#     for inputs, targets in train_loader:
+#         outputs = clf(inputs)
+#         _, predicted = torch.max(outputs.data, 1)  # Get the index of the max log-probability
+#         predictions.append(predicted.numpy())
+#         targets_list.append(targets.numpy())
+#         logit_scores.append(outputs.data)
+#         total += targets.size(0)
+#         correct += (predicted == targets).sum().item()
+
+# accuracy = correct / total
+# print(f'Accuracy of the model on the test set: {accuracy * 100:.2f}%')
+
+# predictions = np.concatenate((predictions), axis = 0)
+# targets_list = np.concatenate((targets_list), axis = 0)
+
+# logit_scores = torch.cat(logit_scores)
+# probabilities = F.softmax(logit_scores, dim=1).detach().numpy()
+
+# # =============================================================================
+# # Calculate Confusion Matrix
+# # =============================================================================
+
+# from sklearn.metrics import confusion_matrix
+
+# # Compute the confusion matrix
+# cm = confusion_matrix(targets_list, predictions)
+
+# import seaborn as sns
+
+# # Plotting the confusion matrix
+# plt.figure(figsize=(10, 7))
+# sns.heatmap(cm, annot=True, fmt='d')
+# plt.title('Confusion Matrix')
+# plt.ylabel('Actual Labels')
+# plt.xlabel('Predicted Labels')
+
+# # Optional: If you want to display class labels on the axes
+# class_labels = [str(int(label.numpy())) for label in unique_labels]  # Replace with your class labels
+# plt.xticks(ticks=np.arange(len(class_labels)) + 0.5, labels=class_labels)
+# plt.yticks(ticks=np.arange(len(class_labels)) + 0.5, labels=class_labels, rotation=0)
+
+# plt.show()
+
+# # # =============================================================================
+# # # AUC Calculation
+# # # =============================================================================
+
+# # # Assuming 'outputs' is your model's raw output and 'true_labels' are your actual labels
+# # logits = logit_scores
+# # true_labels = mapped_labels  # Replace with your actual labels
+
+# # # Convert logits to probabilities
+# # probabilities = F.softmax(logits, dim=1).detach().numpy()
+
+# # from sklearn.metrics import roc_auc_score
+
+# # # Calculate OvA AUC
+# # auc_score = roc_auc_score(true_labels, probabilities, multi_class='ovr')
+
+# # print("One-vs-All AUC:", auc_score)
 
 
 
-# For the committee presentation, let's see how normalized similarlity scores change as a function of temperature
+# # import numpy as np
+# # import matplotlib.pyplot as plt
+# # from sklearn.metrics import roc_curve, auc
+# # from sklearn.preprocessing import label_binarize
 
-cosine_sim = np.linspace(0.001,1,1000)
+# # # Assuming 'y_true' is your true labels and 'y_scores' are the probability scores from your model
+# # # 'y_true' should be a 1D array of labels, and 'y_scores' should be a 2D array where each column corresponds to a class
+# # n_classes = len(np.unique(mapped_labels))
 
-tau_value = [0.02, 0.5, 1.0]
+# # # Binarize the labels for OvR calculation
+# # y_true_binary = label_binarize(mapped_labels, classes=np.arange(n_classes))
 
-normalized_sim = []
+# # # Calculate ROC curve and ROC area for each class
+# # fpr = dict()
+# # tpr = dict()
+# # roc_auc = dict()
+# # for i in range(n_classes):
+# #     fpr[i], tpr[i], _ = roc_curve(y_true_binary[:, i], probabilities[:, i])
+# #     roc_auc[i] = auc(fpr[i], tpr[i])
 
-for i in np.arange(len(tau_value)):
-    normalized_sim.append(np.exp(cosine_sim/tau_value[i]))
+# # # Plot all ROC curves
+# # plt.figure(figsize=(8, 6))
+# # colors = iter(plt.cm.rainbow(np.linspace(0, 1, n_classes)))
+# # for i, color in zip(range(n_classes), colors):
+# #     plt.plot(fpr[i], tpr[i], color=color, lw=2,
+# #              label='ROC curve of class {0} (area = {1:0.2f})'
+# #              ''.format(i, roc_auc[i]))
+
+# # plt.plot([0, 1], [0, 1], 'k--', lw=2)
+# # plt.xlim([0.0, 1.0])
+# # plt.ylim([0.0, 1.05])
+# # plt.xlabel('False Positive Rate')
+# # plt.ylabel('True Positive Rate')
+# # plt.title('Some extension of Receiver operating characteristic to multi-class')
+# # plt.legend(loc="lower right")
+# # plt.show()
+
+
+# def top_k_accuracy(y_true, y_pred, k=5):
+#     """
+#     Calculate top-k accuracy.
     
-plt.figure()
-plt.title("Scaled Cosine Similarity Scores")
-plt.plot(cosine_sim, normalized_sim[0], label = f'Temperature = {tau_value[0]}', color = 'blue', linewidth = 2)
-plt.plot(cosine_sim, normalized_sim[2], label = f'Temperature = {tau_value[2]}', color = 'green', linewidth = 2)
-plt.xlabel("Cosine Similarity")
-plt.ylabel("Scaled Similarity")
-plt.legend()
-plt.show()
-
-
-# # Extract the learned positive and negative similarity scores
-
-# model.eval()
-
-# for batch_data in enumerate(zip(*dataloader_list_test)):
-#     data_list = []
-#     label_list = []
-#     a = batch_data[1]
-#     for idx in np.arange(len(a)):
-#         data_list.append(a[idx][0])
+#     Parameters:
+#     y_true (Tensor): True labels.
+#     y_pred (Tensor): Predictions from the model. Assumes that predictions are logits or probabilities.
+#     k (int): Top k predictions to consider.
     
-# # for batch_idx, ((data1, labels1), (data2, labels2)) in enumerate(contrastive_loader):
-#     data = torch.cat((data_list), dim = 0)
-#     data = data.unsqueeze(1)
-#     # data = data.reshape(a[idx][0].shape[0], len(a), a[idx][0].shape[1], a[idx][0].shape[2])
-#     # labels = labels1
-#     if torch.cuda.is_available():
-#         data = data.cuda()
-#     data = torch.autograd.Variable(data,False)
-#     bsz = a[idx][0].shape[0]
-#     data = data.to(torch.float32)
-#     features = model(data)
-#     norm = features.norm(p=2, dim=1, keepdim=True)
-#     epsilon = 1e-12
-#     # Add a small epsilon to prevent division by zero
-#     normalized_tensor = features / (norm + epsilon)
-#     split_features = torch.split(normalized_tensor, [bsz]*len(a), dim=0)
-#     split_features = [split.unsqueeze(1) for split in split_features]
+#     Returns:
+#     float: Top-k accuracy.
+#     """
+#     # Get the top k predictions for each sample
+#     top_k_preds = torch.topk(y_pred, k, dim=1).indices
 
-#     validation_features = torch.cat(split_features, dim = 1)
+#     # Check if the true labels are in the top k predictions
+#     correct = top_k_preds.eq(y_true.view(-1, 1).expand_as(top_k_preds))
 
-#     validation_loss, validation_negative_similarities, validation_positive_similarities = criterion(validation_features)
+#     # Calculate accuracy
+#     top_k_accuracy = correct.sum().float() / y_true.size(0)
+#     return top_k_accuracy.item()
+
+# # Example usage
+# # Assuming y_true are your true labels and y_pred are your model's predictions
+# y_true = torch.tensor([2, 3, 1, 0, 4])  # Example true labels
+# y_pred = torch.randn(5, 10)  # Example predictions (random in this case)
+
+# k_value = 1
+# accuracy = top_k_accuracy(torch.tensor(targets_list), torch.tensor(probabilities), k=k_value)
+# print(f"Top-{k_value} accuracy: {accuracy * 100:.2f}%")
+
+
+
+# # For the committee presentation, let's see how normalized similarlity scores change as a function of temperature
+
+# cosine_sim = np.linspace(0.001,1,1000)
+
+# tau_value = [0.02, 0.5, 1.0]
+
+# normalized_sim = []
+
+# for i in np.arange(len(tau_value)):
+#     normalized_sim.append(np.exp(cosine_sim/tau_value[i]))
+    
+# plt.figure()
+# plt.title("Scaled Cosine Similarity Scores")
+# plt.plot(cosine_sim, normalized_sim[0], label = f'Temperature = {tau_value[0]}', color = 'blue', linewidth = 2)
+# plt.plot(cosine_sim, normalized_sim[2], label = f'Temperature = {tau_value[2]}', color = 'green', linewidth = 2)
+# plt.xlabel("Cosine Similarity")
+# plt.ylabel("Scaled Similarity")
+# plt.legend()
+# plt.show()
+
+
+# # # Extract the learned positive and negative similarity scores
+
+# # model.eval()
+
+# # for batch_data in enumerate(zip(*dataloader_list_test)):
+# #     data_list = []
+# #     label_list = []
+# #     a = batch_data[1]
+# #     for idx in np.arange(len(a)):
+# #         data_list.append(a[idx][0])
+    
+# # # for batch_idx, ((data1, labels1), (data2, labels2)) in enumerate(contrastive_loader):
+# #     data = torch.cat((data_list), dim = 0)
+# #     data = data.unsqueeze(1)
+# #     # data = data.reshape(a[idx][0].shape[0], len(a), a[idx][0].shape[1], a[idx][0].shape[2])
+# #     # labels = labels1
+# #     if torch.cuda.is_available():
+# #         data = data.cuda()
+# #     data = torch.autograd.Variable(data,False)
+# #     bsz = a[idx][0].shape[0]
+# #     data = data.to(torch.float32)
+# #     features = model(data)
+# #     norm = features.norm(p=2, dim=1, keepdim=True)
+# #     epsilon = 1e-12
+# #     # Add a small epsilon to prevent division by zero
+# #     normalized_tensor = features / (norm + epsilon)
+# #     split_features = torch.split(normalized_tensor, [bsz]*len(a), dim=0)
+# #     split_features = [split.unsqueeze(1) for split in split_features]
+
+# #     validation_features = torch.cat(split_features, dim = 1)
+
+# #     validation_loss, validation_negative_similarities, validation_positive_similarities = criterion(validation_features)
 
 
 
