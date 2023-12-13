@@ -10,7 +10,7 @@ import numpy as np
 import torch
 import sys
 filepath = '/Users/AnanyaKapoor'
-sys.path.append(f'{filepath}/Dropbox (University of Oregon)/Kapoor_Ananya/01_Projects/01_b_Canary_SSL/TweetyCLR/')
+# sys.path.append(f'{filepath}/Dropbox (University of Oregon)/Kapoor_Ananya/01_Projects/01_b_Canary_SSL/TweetyCLR_Repo/')
 from util import MetricMonitor, SupConLoss
 from util import Tweetyclr, Temporal_Augmentation, TwoCropTransform, Custom_Contrastive_Dataset
 import torch.nn as nn
@@ -54,29 +54,13 @@ class Encoder(nn.Module):
         self.bn8 = nn.BatchNorm2d(24)
         self.bn9 = nn.BatchNorm2d(24)
         self.bn10 = nn.BatchNorm2d(16)
-        # self.bn11 = nn.BatchNorm2d(16)
-        # self.bn12 = nn.BatchNorm2d(8)
 
         self.relu = nn.ReLU()       
-        self.dropout = nn.Dropout2d(
-        )
-        # self.fc = nn.Linear(320, 32)
-        # self._to_linear = 1280
-        # self._to_linear = 320
+        self.dropout = nn.Dropout2d()
+
         self._to_linear = 320
         
     def forward(self, x):
-         
-        # x = F.relu(self.dropout(self.conv1(self.bn1(x))))
-        # x = F.relu(self.conv2(self.bn2(x))) 
-        # x = F.relu(self.dropout(self.conv3(self.bn3(x))))
-        # x = F.relu(self.conv4(self.bn4(x))) 
-        # x = F.relu(self.dropout(self.conv5(self.bn5(x))))
-        # x = F.relu(self.conv6(self.bn6(x))) 
-        # x = F.relu(self.dropout(self.conv7(self.bn7(x))))
-        # x = F.relu(self.conv8(self.bn8(x)))
-        # x = F.relu(self.dropout(self.conv9(self.bn9(x))))
-        # x = F.relu(self.conv10(self.bn10(x)))
         
         x = F.relu(self.bn1(self.conv1(x)))
         x = F.relu(self.bn2(self.conv2(x))) 
@@ -88,15 +72,9 @@ class Encoder(nn.Module):
         x = F.relu(self.bn8(self.conv8(x)))
         x = F.relu(self.bn9(self.conv9(x)))
         x = F.relu(self.bn10(self.conv10(x)))
-        # x = F.relu(self.conv11(self.bn11(x)))
-        # x = F.relu(self.conv12(self.bn12(x)))
 
-        # x = x.view(-1, 48)
         x = x.view(-1, 320)
-        # x = self.fc(x)
-        # x = self.relu(x)
-        # x = x.view(-1, 32)
-        # x = x.view(-1, 1280) #Window size = 500
+
         
         return x
 
@@ -120,11 +98,9 @@ def pretraining(epoch, model, contrastive_loader_train, contrastive_loader_test,
             data_list.append(a[idx][0])
         
         
-    # for batch_idx, ((data1, labels1), (data2, labels2)) in enumerate(contrastive_loader):
         data = torch.cat((data_list), dim = 0)
         data = data.unsqueeze(1)
-        # data = data.reshape(a[idx][0].shape[0], len(a), a[idx][0].shape[1], a[idx][0].shape[2])
-        # labels = labels1
+
         if torch.cuda.is_available():
             data = data.cuda()
         data = torch.autograd.Variable(data,False)
@@ -172,11 +148,8 @@ def pretraining(epoch, model, contrastive_loader_train, contrastive_loader_test,
             for idx in np.arange(len(a)):
                 data_list.append(a[idx][0])
             
-        # for batch_idx, ((data1, labels1), (data2, labels2)) in enumerate(contrastive_loader):
             data = torch.cat((data_list), dim = 0)
             data = data.unsqueeze(1)
-            # data = data.reshape(a[idx][0].shape[0], len(a), a[idx][0].shape[1], a[idx][0].shape[2])
-            # labels = labels1
             if torch.cuda.is_available():
                 data = data.cuda()
             data = torch.autograd.Variable(data,False)
@@ -197,9 +170,7 @@ def pretraining(epoch, model, contrastive_loader_train, contrastive_loader_test,
             metric_monitor.update("Validation Loss", validation_loss.item())
 
 
-    # print("[Epoch: {epoch:03d}] Contrastive Pre-train | {metric_monitor}".format(epoch=epoch, metric_monitor=metric_monitor))
     print(f'Epoch: {epoch:03d} Contrastive Pre-train Loss: {training_loss:.3f}, Validation Loss: {validation_loss:.3f}')
-    # return metric_monitor.metrics['Loss']['avg'], metric_monitor.metrics['Learning Rate']['avg'], negative_similarities_for_epoch, features, mean_pos_cos_sim_for_epoch, mean_ntxent_positive_similarities_for_epoch
     return metric_monitor.metrics['Training Loss']['avg'], metric_monitor.metrics['Validation Loss']['avg'], metric_monitor.metrics['Learning Rate']['avg'], training_features, validation_features, negative_similarities_for_epoch, ntxent_positive_similarities_for_epoch
 
 # =============================================================================
@@ -238,44 +209,6 @@ with open(f'{filepath}/Dropbox (University of Oregon)/Kapoor_Ananya/01_Projects/
     category_colors = pickle.load(file)
     
 exclude_transitions = False
-
-# SYNTHETIC CANARY DATA
-
-# phrase_repeats = 5
-# num_songs = 25
-# radius_value = 0.01
-# num_syllables = 10
-
-# folderpath = f'{filepath}/Dropbox (University of Oregon)/Kapoor_Ananya/01_Projects/01_b_Canary_SSL/TweetyCLR_Repo/'
-# songpath = f'{folderpath}num_songs_{num_songs}_num_syllables_{num_syllables}_phrase_repeats_{phrase_repeats}_radius_{radius_value}/'
-
-# # For each spectrogram we will extract
-# # 1. Each timepoint's syllable label
-# # 2. The spectrogram itself
-# stacked_labels = [] 
-# stacked_specs = []
-# spectrogram_id = [] 
-
-# all_songs_data = [element for element in os.listdir(songpath)  if 'Song' in element] 
-# all_songs_data.sort()
-# all_songs_data = [f'{songpath}{element}/synthetic_data.npz' for element in all_songs_data]
-
-
-# # files = os.listdir(directory)
-# # all_songs_data = [f'{directory}/{element}' for element in files if '.npz' in element] # Get the file paths of each numpy file from Yarden's data
-# # all_songs_data.sort()
-
-# masking_freq_tuple = (500, 13500)
-# spec_dim_tuple = (window_size, 151)
-
-
-# with open(f'{filepath}/Dropbox (University of Oregon)/Kapoor_Ananya/01_Projects/01_b_Canary_SSL/Canary_SSL_Repo/InfoNCE_Num_Spectrograms_100_Window_Size_100_Stride_10/category_colors.pkl', 'rb') as file:
-#     category_colors = pickle.load(file)
-    
-# exclude_transitions = False
-
-# num_spec = 10
-# folder_name = f'{folderpath}Synthetic_Analysis/Num_Spectrograms_{num_spec}_Window_Size_{window_size}_Stride_{stride}'
 
 # =============================================================================
 #     # Set model parameters
@@ -332,8 +265,6 @@ plt.figure()
 plt.scatter(embed[:,0], embed[:,1], s = 10, c = simple_tweetyclr.mean_colors_per_minispec)
 plt.xlabel("UMAP 1")
 plt.ylabel("UMAP 2")
-# plt.title("UMAP Decomposition of ")
-# plt.suptitle("UMAP Representation of All Spectrogram Slices")
 plt.title(f'Total Slices: {embed.shape[0]}')
 plt.savefig(f'{simple_tweetyclr.folder_name}/Plots/UMAP_of_all_slices.png')
 plt.show()
@@ -343,6 +274,13 @@ plt.show()
 
 # DEFINE HARD INDICES THROUGH INTERACTION: USER NEEDS TO ZOOM IN ON ROI 
 
+# If we are including multiple hard regions then I should put them in a 
+# dictionary and then select hard and easy negative samples according to which
+# key we are in in in the dictionary
+
+hard_indices_dict = {}
+hard_region_coordinates = {}
+
 # Get current axes
 ax = plt.gca()
 # Get current limits
@@ -351,23 +289,80 @@ ylim = ax.get_ylim()
 
 hard_indices = np.where((embed[:,0]>=xlim[0])&(embed[:,0]<=xlim[1]) & (embed[:,1]>=ylim[0]) & (embed[:,1]<=ylim[1]))[0]
 
-plt.figure(figsize = (10,10))
-plt.scatter(embed[hard_indices,0], embed[hard_indices,1], s = 10, c = simple_tweetyclr.mean_colors_per_minispec[hard_indices,:])
-plt.xlabel("UMAP 1")
-plt.ylabel("UMAP 2")
-# plt.title("UMAP Decomposition of ")
-# plt.suptitle("UMAP Representation of All Spectrogram Slices")
-plt.title(f'Total Slices: {embed[hard_indices,:].shape[0]}')
-plt.savefig(f'{simple_tweetyclr.folder_name}/Plots/UMAP_of_hard_slices.png')
+
+hard_indices_dict[0] = hard_indices
+hard_region_coordinates[0] = [xlim, ylim]
+
+# Now let's zoom out on the matplotlib plot
+
+# Zoom out by changing the limits
+# You can adjust these values as needed to zoom out to the desired level
+ax.set_xlim([min(embed[:,0]) - 1, max(embed[:,0]) + 1])  # Zoom out on x-axis
+ax.set_ylim([min(embed[:,1]) - 1, max(embed[:, 1]) + 1])  # Zoom out on y-axis
+
+# Show the updated plot
 plt.show()
 
-simple_tweetyclr.hard_indices = hard_indices
+# Get current axes
+ax = plt.gca()
+# Get current limits
+xlim = ax.get_xlim()
+ylim = ax.get_ylim()
+
+hard_indices = np.where((embed[:,0]>=xlim[0])&(embed[:,0]<=xlim[1]) & (embed[:,1]>=ylim[0]) & (embed[:,1]<=ylim[1]))[0]
+
+hard_indices_dict[1] = hard_indices
+hard_region_coordinates[1] = [xlim, ylim]
+
+# Let's plot the two hard regions
+
+for i in np.arange(len(hard_indices_dict)):
+    hard_ind = hard_indices_dict[i]
+
+    plt.figure(figsize = (10,10))
+    plt.scatter(embed[hard_ind,0], embed[hard_ind,1], s = 10, c = simple_tweetyclr.mean_colors_per_minispec[hard_ind,:])
+    plt.xlabel("UMAP 1")
+    plt.ylabel("UMAP 2")
+    # plt.title("UMAP Decomposition of ")
+    plt.suptitle(f'UMAP Representation of Hard Region #{i}')
+    plt.title(f'Total Slices: {embed[hard_ind,:].shape[0]}')
+    plt.savefig(f'{simple_tweetyclr.folder_name}/Plots/UMAP_of_hard_slices_region_{i}.png')
+    plt.show()
+
+# # simple_tweetyclr.hard_indices = hard_indices
+simple_tweetyclr.hard_indices_dict = hard_indices_dict
+simple_tweetyclr.region_locations = hard_region_coordinates
+
+simple_tweetyclr.hard_indices = []
+simple_tweetyclr.region_size = []
+
+for i in np.arange(len(hard_indices_dict)):
+    simple_tweetyclr.hard_indices.append(hard_indices_dict[i])
+    simple_tweetyclr.region_size.append(hard_indices_dict[i].shape[0])
+    
+simple_tweetyclr.hard_indices = np.concatenate((simple_tweetyclr.hard_indices))
+
+# hard_indices = simple_tweetyclr.hard_indices
+
 
 dataset = simple_tweetyclr.stacked_windows.copy()
 
 # These will give the training and testing ANCHORS
-stacked_windows_train, stacked_labels_train, mean_colors_per_minispec_train, hard_indices_train, stacked_windows_test, stacked_labels_test, mean_colors_per_minispec_test, hard_indices_test = simple_tweetyclr.train_test_split(dataset, 0.8, hard_indices)
+stacked_windows_train, stacked_labels_train, mean_colors_per_minispec_train, hard_indices_train, hard_indices_by_region_train, stacked_windows_test, stacked_labels_test, mean_colors_per_minispec_test, hard_indices_test, hard_indices_by_region_test = simple_tweetyclr.train_test_split(dataset, 0.8, hard_indices_dict, 295)
 
+# Let's find the proportion of the training and testing indices that fall in
+# each region
+
+hard_indices_breakdown_by_region = {}
+
+for i in np.arange(len(hard_indices_dict)):
+    region_indices = simple_tweetyclr.hard_indices_dict[i]
+    indicator_training_in_region = np.in1d(hard_indices_train, region_indices)
+    indicator_testing_in_region = np.in1d(hard_indices_test, region_indices)
+    
+    hard_indices_breakdown_by_region[i] = [np.mean(indicator_training_in_region), np.mean(indicator_testing_in_region)]
+    
+    
 data_for_analysis = dataset.copy() 
 
 total_dataset = TensorDataset(torch.tensor(data_for_analysis.reshape(data_for_analysis.shape[0], 1, simple_tweetyclr.time_dim, simple_tweetyclr.freq_dim)))
@@ -386,6 +381,7 @@ embeddable_images = simple_tweetyclr.get_images(list_of_images)
 
 simple_tweetyclr.plot_UMAP_embedding(embed, simple_tweetyclr.mean_colors_per_minispec,embeddable_images, f'{simple_tweetyclr.folder_name}/Plots/UMAP_of_all_slices.html', saveflag = True)
 
+
 # =============================================================================
 # # Hand select negative samples
 # =============================================================================
@@ -394,17 +390,38 @@ simple_tweetyclr.plot_UMAP_embedding(embed, simple_tweetyclr.mean_colors_per_min
 # the bounding box, selecting spectrogram slices within the bounding box that 
 # have a low cosine similarity. 
 
-training_indices, stacked_windows_train = simple_tweetyclr.negative_sample_selection(data_for_analysis, hard_indices_train, None)
+# I will repeat this function for each hard region. 
 
-# Let's eliminate the easy training negatives from the selection of easy negatives for the testing dataset
-all_easy_indices = np.array(list(set(np.arange(data_for_analysis.shape[0])) - set(hard_indices)))
-training_easy_negatives = np.intersect1d(training_indices, all_easy_indices)
+training_indices_total = []
+testing_indices_total = []
+stacked_windows_train_total = []
+stacked_windows_test_total = []
 
-testing_indices, stacked_windows_test = simple_tweetyclr.negative_sample_selection(data_for_analysis, hard_indices_test, training_easy_negatives)
+for i in np.arange(len(hard_indices_dict)):
+
+    indices_of_interest = hard_indices_by_region_train[i]
+    
+    training_indices, stacked_windows_train = simple_tweetyclr.negative_sample_selection(data_for_analysis, indices_of_interest, None)
+    
+    # Let's eliminate the easy training negatives from the selection of easy negatives for the testing dataset
+    all_easy_indices = np.array(list(set(np.arange(data_for_analysis.shape[0])) - set(hard_indices_dict[i])))
+    training_easy_negatives = np.intersect1d(training_indices, all_easy_indices)
+    
+    testing_indices, stacked_windows_test = simple_tweetyclr.negative_sample_selection(data_for_analysis, hard_indices_by_region_test[i], training_easy_negatives)
+    
+    training_indices_total.append(training_indices)
+    testing_indices_total.append(testing_indices)
+    stacked_windows_train_total.append(stacked_windows_train)
+    stacked_windows_test_total.append(stacked_windows_test)   
 
 dict_of_spec_slices_with_slice_number = {i: data_for_analysis[i, :] for i in range(data_for_analysis.shape[0])}
 
 items = list(dict_of_spec_slices_with_slice_number.items())
+
+stacked_windows_train = np.concatenate((stacked_windows_train_total), axis = 0)
+stacked_windows_test = np.concatenate((stacked_windows_test_total), axis = 0)
+training_indices = np.concatenate((training_indices_total), axis = 0)
+testing_indices = np.concatenate((testing_indices_total), axis = 0)
 
 # =============================================================================
 #     # Create contrastive dataloaders
@@ -515,7 +532,7 @@ for i in np.arange(len(flattened_dict_test)):
     dataloader_list_test.append(dataloader)    
     
 
-hard_stacked_windows = simple_tweetyclr.stacked_windows[hard_indices,:]
+hard_stacked_windows = simple_tweetyclr.stacked_windows[simple_tweetyclr.hard_indices,:]
 
 hard_dataset = TensorDataset(torch.tensor(hard_stacked_windows.reshape(hard_stacked_windows.shape[0], 1, simple_tweetyclr.time_dim, simple_tweetyclr.freq_dim)))
 hard_dataloader = DataLoader(hard_dataset, batch_size=batch_size , shuffle=False)
@@ -565,8 +582,9 @@ list_of_images_hard = [tensor.numpy() for tensor in list_of_images_hard]
 
 embeddable_images_hard = simple_tweetyclr.get_images(list_of_images_hard)
 
-
-
+simple_tweetyclr.plot_UMAP_embedding(embed[simple_tweetyclr.hard_indices,:], simple_tweetyclr.mean_colors_per_minispec[simple_tweetyclr.hard_indices,:],embeddable_images_hard, f'{simple_tweetyclr.folder_name}/Plots/UMAP_of_hard_slices.html', saveflag = True)
+simple_tweetyclr.plot_UMAP_embedding(embed[hard_indices_train,:], simple_tweetyclr.mean_colors_per_minispec[hard_indices_train,:],embeddable_images_train, f'{simple_tweetyclr.folder_name}/Plots/UMAP_of_hard_slices_train.html', saveflag = True)
+simple_tweetyclr.plot_UMAP_embedding(embed[hard_indices_test,:], simple_tweetyclr.mean_colors_per_minispec[hard_indices_test,:],embeddable_images_test, f'{simple_tweetyclr.folder_name}/Plots/UMAP_of_hard_slices_test.html', saveflag = True)
 
 # =============================================================================
 #     # Pass data through untrained model and extract representation
@@ -731,16 +749,25 @@ mean = model_rep_trained.mean(dim=1, keepdim=True)
 std = model_rep_trained.std(dim=1, keepdim=True, unbiased=False)
 
 
-trained_rep_umap = np.load('/Users/AnanyaKapoor/Downloads/trained_rep_umap_blue_purple_region.npy')
+trained_rep_umap = np.load('/Users/AnanyaKapoor/Downloads/trained_rep_umap_MEGA_MEGA.npy')
 # trained_rep_umap = reducer.fit_transform(model_rep_trained.clone().detach().numpy())
 
 plt.figure()
 plt.title("Data UMAP Representation Through the Trained Model")
-plt.scatter(trained_rep_umap[:,0], trained_rep_umap[:,1], c = simple_tweetyclr.mean_colors_per_minispec[hard_indices,:])
+plt.scatter(trained_rep_umap[:,0], trained_rep_umap[:,1], c = simple_tweetyclr.mean_colors_per_minispec[simple_tweetyclr.hard_indices,:])
 plt.xlabel("UMAP 1")
 plt.ylabel("UMAP 2")
 plt.savefig(f'{simple_tweetyclr.folder_name}/UMAP_of_trained_model.png')
 plt.show()
+
+plt.figure()
+plt.title("Data UMAP Representation")
+plt.scatter(embed[simple_tweetyclr.hard_indices,0], embed[simple_tweetyclr.hard_indices,1], c = simple_tweetyclr.mean_colors_per_minispec[simple_tweetyclr.hard_indices,:])
+plt.xlabel("UMAP 1")
+plt.ylabel("UMAP 2")
+plt.savefig(f'{simple_tweetyclr.folder_name}/UMAP_of_hard_regions.png')
+plt.show()
+
 
 
 # # NOW FOR TESTING DATA
@@ -782,7 +809,7 @@ plt.legend()
 plt.savefig(f'{simple_tweetyclr.folder_name}/loss_curves.png')
 plt.show()
 
-# simple_tweetyclr.plot_UMAP_embedding(trained_rep_umap,  simple_tweetyclr.mean_colors_per_minispec[hard_indices_train,:], embeddable_images_train, f'{simple_tweetyclr.folder_name}/Plots/UMAP_of_trained_model.html', saveflag = True)
+simple_tweetyclr.plot_UMAP_embedding(trained_rep_umap,  simple_tweetyclr.mean_colors_per_minispec[simple_tweetyclr.hard_indices,:], embeddable_images_hard, f'{simple_tweetyclr.folder_name}/Plots/UMAP_of_trained_model.html', saveflag = True)
 # simple_tweetyclr.plot_UMAP_embedding(trained_rep_umap_validation,  simple_tweetyclr.mean_colors_per_minispec[hard_indices_test,:], embeddable_images_test, f'{simple_tweetyclr.folder_name}/Plots/UMAP_of_trained_model_testing.html', saveflag = True)
 
 # =============================================================================
@@ -794,7 +821,7 @@ plt.show()
 X = trained_rep_umap.copy()
 
 import hdbscan
-clusterer = hdbscan.HDBSCAN(min_cluster_size = 100, gen_min_span_tree=True)
+clusterer = hdbscan.HDBSCAN(min_cluster_size=100, gen_min_span_tree=True)
 # Get the cluster labels
 
 clusterer.fit(X)
@@ -813,7 +840,7 @@ plt.suptitle("HDBSCAN Clustering of Trained UMAP+TweetyCLR Representation of Tra
 plt.title(f'Number of Clusters Detected: {n_clusters}')
 plt.xlabel("UMAP 1")
 plt.ylabel("UMAP 2")
-plt.savefig(f'{simple_tweetyclr.folder_name}/hdbscan_plot_trained_model_training_data.png')
+# plt.savefig(f'{simple_tweetyclr.folder_name}/hdbscan_plot_trained_model_training_data.png')
 plt.show()
 
 

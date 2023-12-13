@@ -280,46 +280,74 @@ class Tweetyclr:
     #     self.shuffled_indices = shuffled_indices
         
         
-    def train_test_split(self, dataset, train_split_perc, hard_indices):
+    def train_test_split(self, dataset, train_split_perc, hard_indices_dict, seed = 295):
         ''' 
         The following is the procedure I want to do for the train_test_split.
         This function creates the training and testing anchor indices 
         
+        I want to sample an equal number of hard indices from each region so
+        that the total training data is 80% of the entire hard indices across
+        both regions. 
+        
         '''
         
-        split_point = int(train_split_perc*hard_indices.shape[0])
+        np.random.seed(seed)
+        
+        hard_indices_total = sum(len(arr) for arr in hard_indices_dict.values())
+        
+        # I want to find the number of indices to sample from each region. 
+        # I will sample 80% of each hard region and make that my total training
+        # dataset. The remaining 20% from each region will be combined to form
+        # my testing dataset
+        
+        training_indices_by_region = []
+        testing_indices_by_region = []
+        
+        for i in np.arange(len(hard_indices_dict)):
+            k = int(np.floor(hard_indices_dict[i].shape[0]*0.8))
+            sampled_indices = np.random.choice(len(hard_indices_dict[i]), size=k, replace=False)
+            sampled_elements = hard_indices_dict[i][sampled_indices]
+            training_indices_by_region.append(sampled_elements)
+            
+            # Testing
+            not_chosen_elements = np.array(list(set(hard_indices_dict[i]) - set(sampled_elements)))
+            testing_indices_by_region.append(not_chosen_elements)
+            
+        training_indices_stacked = np.concatenate((training_indices_by_region))
+        testing_indices_stacked = np.concatenate((testing_indices_by_region))
 
-        training_indices = hard_indices[:split_point]
-        testing_indices = hard_indices[split_point:]
+        # split_point = int(train_split_perc*hard_indices.shape[0])
+
+        # training_indices = hard_indices[:split_point]
+        # testing_indices = hard_indices[split_point:]
 
         # Shuffle array1 using the shuffled indices
-        stacked_windows_for_analysis_modeling = dataset[hard_indices,:]
+        stacked_windows_for_analysis_modeling = dataset[self.hard_indices,:]
 
         # Shuffle array2 using the same shuffled indices
-        stacked_labels_for_analysis_modeling= self.stacked_labels_for_window[hard_indices,:]
-        mean_colors_per_minispec_for_analysis_modeling = self.mean_colors_per_minispec[hard_indices, :]
+        stacked_labels_for_analysis_modeling= self.stacked_labels_for_window[self.hard_indices,:]
+        mean_colors_per_minispec_for_analysis_modeling = self.mean_colors_per_minispec[self.hard_indices, :]
 
         # Training dataset
 
-        stacked_windows_train = torch.tensor(dataset[training_indices,:])
+        stacked_windows_train = torch.tensor(dataset[training_indices_stacked,:])
         stacked_windows_train = stacked_windows_train.reshape(stacked_windows_train.shape[0], 1, self.time_dim, self.freq_dim)
         # self.train_indices = np.array(training_indices)
 
-        mean_colors_per_minispec_train = self.mean_colors_per_minispec[training_indices,:]
-        stacked_labels_train = self.stacked_labels_for_window[training_indices,:]
+        mean_colors_per_minispec_train = self.mean_colors_per_minispec[training_indices_stacked,:]
+        stacked_labels_train = self.stacked_labels_for_window[training_indices_stacked,:]
 
         # Testing dataset
 
-        stacked_windows_test = torch.tensor(dataset[testing_indices,:])
+        stacked_windows_test = torch.tensor(dataset[testing_indices_stacked,:])
         stacked_windows_test = stacked_windows_test.reshape(stacked_windows_test.shape[0], 1, self.time_dim, self.freq_dim)
         # self.train_indices = np.array(training_indices)
 
-        mean_colors_per_minispec_test = self.mean_colors_per_minispec[testing_indices,:]
-        stacked_labels_test = self.stacked_labels_for_window[testing_indices,:]
+        mean_colors_per_minispec_test = self.mean_colors_per_minispec[testing_indices_stacked,:]
+        stacked_labels_test = self.stacked_labels_for_window[testing_indices_stacked,:]
         
         
-        return stacked_windows_train, stacked_labels_train, mean_colors_per_minispec_train, training_indices, stacked_windows_test, stacked_labels_test, mean_colors_per_minispec_test, testing_indices
-    
+        return stacked_windows_train, stacked_labels_train, mean_colors_per_minispec_train, training_indices_stacked, training_indices_by_region, stacked_windows_test, stacked_labels_test, mean_colors_per_minispec_test, testing_indices_stacked, testing_indices_by_region
     
     
     def negative_sample_selection(self, data_for_analysis, indices_of_interest, easy_negative_indices_to_exclude):
