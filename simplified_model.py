@@ -116,7 +116,7 @@ stacked_windows.shape = (stacked_windows.shape[0], 100*151)
 
 # Set up a base dataloader (which we won't directly use for modeling). Also define the batch size of interest
 total_dataset = TensorDataset(torch.tensor(simple_tweetyclr.stacked_windows.reshape(simple_tweetyclr.stacked_windows.shape[0], 1, 100, 151)))
-batch_size = 64
+batch_size = 256
 total_dataloader = DataLoader(total_dataset, batch_size=batch_size , shuffle=False)
 
 import torch
@@ -255,7 +255,8 @@ class Encoder(nn.Module):
 # reducer = umap.UMAP(metric = 'cosine')
 reducer = umap.UMAP(random_state = 295)
 
-embed = reducer.fit_transform(simple_tweetyclr.stacked_windows)
+# embed = reducer.fit_transform(simple_tweetyclr.stacked_windows)
+embed = np.load(f'{analysis_path}Num_Spectrograms_{num_spec}_Window_Size_{window_size}_Stride_{stride}/embed.npy')
 # Preload the embedding 
 # embed = np.load(f'{simple_tweetyclr.folder_name}/embed_80_specs.npy')
 simple_tweetyclr.umap_embed_init = embed
@@ -267,6 +268,8 @@ plt.ylabel("UMAP 2")
 plt.title(f'Total Slices: {embed.shape[0]}')
 plt.savefig(f'{simple_tweetyclr.folder_name}/Plots/UMAP_of_all_slices.png')
 plt.show()
+
+# np.save(f'{simple_tweetyclr.folder_name}/embed.npy', embed)
 
 # DEFINE HARD INDICES THROUGH INTERACTION: USER NEEDS TO ZOOM IN ON ROI 
 
@@ -440,15 +443,17 @@ class APP_MATCHER(Dataset):
         #         Positive Sample
         # =============================================================================
         
+        positive_img = self.all_features[actual_index+1,:,:,:]
+        
         # Define the noise scale (e.g., 5% of the data range)
         noise_scale = self.noise_scale        
-        # Generate uniform noise and scale it
-        noise = torch.rand_like(anchor_img) * noise_scale
+        # # Generate uniform noise and scale it
+        noise = torch.rand_like(positive_img) * noise_scale
         
-        # Add the noise to the original tensor
-        noisy_tensor = anchor_img + noise
+        # # Add the noise to the original tensor
+        noisy_tensor = positive_img + noise
         
-        # Clip values to be between 0 and 1
+        # # Clip values to be between 0 and 1
         positive_img = torch.clamp(noisy_tensor, 0, 1)
         
         # top_5_images = self.positive_dict[actual_index]
@@ -509,7 +514,8 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model.to(device).to(torch.float32)
 
 criterion = nn.TripletMarginLoss(margin=1.0, p=2)
-optimizer = optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-5)
+# optimizer = optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-5)
+optimizer = optim.Adam(model.parameters(), lr=1e-3)
 
 num_epochs = 100
 patience = 10  # Number of epochs to wait for improvement before stopping
@@ -563,7 +569,7 @@ plt.plot(validation_epoch_loss, label = 'Validation Loss')
 plt.legend()
 plt.xlabel("Epoch")
 plt.ylabel("Triplet Loss")
-plt.title("Supervised Training")
+plt.title("Unsupervised Training")
 plt.savefig(f'{folder_name}/loss_curve.png')
 plt.show()
 
