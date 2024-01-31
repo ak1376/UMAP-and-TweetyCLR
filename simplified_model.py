@@ -212,28 +212,28 @@ class Encoder(nn.Module):
         # x = self.relu(self.bn10(self.conv10(x)))
         
         # LayerNorm
-        # x = (self.relu(self.ln1(self.conv1(x))))
-        # x = (self.relu(self.ln2(self.conv2(x))))
-        # x = (self.relu(self.ln3(self.conv3(x))))
-        # x = (self.relu(self.ln4(self.conv4(x))))
-        # x = (self.relu(self.ln5(self.conv5(x))))
-        # x = (self.relu(self.ln6(self.conv6(x))))
-        # x = (self.relu(self.ln7(self.conv7(x))))
-        # x = (self.relu(self.ln8(self.conv8(x))))
-        # x = (self.relu(self.ln9(self.conv9(x))))
-        # x = (self.relu(self.ln10(self.conv10(x))))
+        x = (self.relu(self.ln1(self.conv1(x))))
+        x = (self.relu(self.ln2(self.conv2(x))))
+        x = (self.relu(self.ln3(self.conv3(x))))
+        x = (self.relu(self.ln4(self.conv4(x))))
+        x = (self.relu(self.ln5(self.conv5(x))))
+        x = (self.relu(self.ln6(self.conv6(x))))
+        x = (self.relu(self.ln7(self.conv7(x))))
+        x = (self.relu(self.ln8(self.conv8(x))))
+        x = (self.relu(self.ln9(self.conv9(x))))
+        x = (self.relu(self.ln10(self.conv10(x))))
         
         # LayerNorm + Dropout
-        x = self.dropout(self.relu(self.ln1(self.conv1(x))))
-        x = self.dropout(self.relu(self.ln2(self.conv2(x))))
-        x = self.dropout(self.relu(self.ln3(self.conv3(x))))
-        x = self.dropout(self.relu(self.ln4(self.conv4(x))))
-        x = self.dropout(self.relu(self.ln5(self.conv5(x))))
-        x = self.dropout(self.relu(self.ln6(self.conv6(x))))
-        x = self.dropout(self.relu(self.ln7(self.conv7(x))))
-        x = self.dropout(self.relu(self.ln8(self.conv8(x))))
-        x = self.dropout(self.relu(self.ln9(self.conv9(x))))
-        x = self.dropout(self.relu(self.ln10(self.conv10(x))))
+        # x = self.dropout(self.relu(self.ln1(self.conv1(x))))
+        # x = self.dropout(self.relu(self.ln2(self.conv2(x))))
+        # x = self.dropout(self.relu(self.ln3(self.conv3(x))))
+        # x = self.dropout(self.relu(self.ln4(self.conv4(x))))
+        # x = self.dropout(self.relu(self.ln5(self.conv5(x))))
+        # x = self.dropout(self.relu(self.ln6(self.conv6(x))))
+        # x = self.dropout(self.relu(self.ln7(self.conv7(x))))
+        # x = self.dropout(self.relu(self.ln8(self.conv8(x))))
+        # x = self.dropout(self.relu(self.ln9(self.conv9(x))))
+        # x = self.dropout(self.relu(self.ln10(self.conv10(x))))
 
         x_flattened = x.view(-1, 320)
         
@@ -343,7 +343,7 @@ hard_dataset = TensorDataset(torch.tensor(hard_dataset), torch.tensor(hard_indic
 # Negative sample: A spectrogram slice that is outside the hard_indices region
 
 class APP_MATCHER(Dataset):
-    def __init__(self, dataset, hard_dataset, umap_embedding):
+    def __init__(self, dataset, hard_dataset, umap_embedding, noise_scale = 0.5):
         ''' 
         The APP_MATCHER object should take in the entire dataset and the dataset of hard indices only. 
         The datasets should be Pytorch datasets. THe first component of each 
@@ -380,44 +380,44 @@ class APP_MATCHER(Dataset):
         self.all_possible_negatives = all_possible_negatives
         
         # Find the positive images
-        positive_dict, dict_of_indices = self.select_positive_image()
-        self.positive_dict = positive_dict
+        dict_of_indices = self.select_positive_image()
         self.dict_of_indices = dict_of_indices
+        self.noise_scale = noise_scale
         
     def select_positive_image(self):
         # Compute pairwise Euclidean distances
-        distances = torch.cdist(self.umap_embedding, self.umap_embedding, p=2)
+        # distances = torch.cdist(self.umap_embedding, self.umap_embedding, p=2)
         
-        # Dictionary to store the top 5 closest points for each data point
-        # TODO: I should also create a dictionary that goes from 0, ..., 470 and stores the hard_index. That way I can use index in the__getitem__ function to extract the top_5 spectrogram slices.
-        top_dict = {}
+        # # Dictionary to store the top 5 closest points for each data point
+        # # TODO: I should also create a dictionary that goes from 0, ..., 470 and stores the hard_index. That way I can use index in the__getitem__ function to extract the top_5 spectrogram slices.
+        # top_dict = {}
         dict_of_indices = {}
         
         # Iterate over each data point
         for i in range(self.umap_embedding.size(0)):
             # Exclude the distance to the point itself by setting it to a high value
-            distances[i, i] = float('inf')
+            # distances[i, i] = float('inf')
         
             # Get indices of the top 5 closest points
-            _, closest_indices = torch.topk(distances[i], 5, largest=False)
+            # _, closest_indices = torch.topk(distances[i], 5, largest=False)
         
             # Store the corresponding points in the dictionary
-            top_dict[i] = closest_indices
+            # top_dict[i] = closest_indices
             
             dict_of_indices[i] = i 
             
         
         # Subset the dictionary to only see the values for the hard_indices keys
         # Keys you want to keep
-        keys_to_keep = self.hard_indices.tolist()
+        # keys_to_keep = self.hard_indices.tolist()
         
         # New dictionary with only the keys you want
-        selected_dict = {k: top_dict[k] for k in keys_to_keep if k in top_dict}
-        dict_of_indices = {k: dict_of_indices[k] for k in keys_to_keep if k in dict_of_indices}
+        # selected_dict = {k: top_dict[k] for k in keys_to_keep if k in top_dict}
+        # dict_of_indices = {k: dict_of_indices[k] for k in keys_to_keep if k in dict_of_indices}
 
         
-                                
-        return selected_dict, dict_of_indices
+        return dict_of_indices                      
+        # return selected_dict, dict_of_indices
     
     def __len__(self):
         return self.hard_indices.shape[0]
@@ -425,7 +425,7 @@ class APP_MATCHER(Dataset):
     def __getitem__(self, index):
         
         ''' 
-        The positive sample for each anchor image in the batch will be the spectrogram slice that is closest to the anchor spec slice
+        The positive sample for each anchor image in the batch will be an augmented version of the anchor slice -- white noise
         The negative sample for each anchor image in the batch will be a randomly chosen spectrogram slice outside the hard region
         '''
         # TODO: Revise this function so that I don't get KeyErrors anymore
@@ -440,14 +440,25 @@ class APP_MATCHER(Dataset):
         #         Positive Sample
         # =============================================================================
         
-        top_5_images = self.positive_dict[actual_index]
+        # Define the noise scale (e.g., 5% of the data range)
+        noise_scale = self.noise_scale        
+        # Generate uniform noise and scale it
+        noise = torch.rand_like(anchor_img) * noise_scale
+        
+        # Add the noise to the original tensor
+        noisy_tensor = anchor_img + noise
+        
+        # Clip values to be between 0 and 1
+        positive_img = torch.clamp(noisy_tensor, 0, 1)
+        
+        # top_5_images = self.positive_dict[actual_index]
         
         # Generate a random index
-        random_index = torch.randint(0, top_5_images.size(0), (1,)).item()
+        # random_index = torch.randint(0, top_5_images.size(0), (1,)).item()
         
         # Select the element at the random index
-        positive_index = top_5_images[random_index].item()
-        positive_img = self.all_features[positive_index, :, :, :]
+        # positive_index = top_5_images[random_index].item()
+        # positive_img = self.all_features[positive_index, :, :, :]
                 
         # =============================================================================
         #         Negative Sample
@@ -461,11 +472,29 @@ class APP_MATCHER(Dataset):
         
         return anchor_img, positive_img, negative_img
         
-train_dataset = APP_MATCHER(dataset, hard_dataset, embed)   
-    
+# Split the dataset into a training and testing dataset
+# Define the split sizes -- what is the train test split ? 
+train_perc = 0.8 #
+train_size = int(train_perc * len(hard_dataset))  # (100*train_perc)% for training
+test_size = len(hard_dataset) - train_size  # 100 - (100*train_perc)% for testing
+
+from torch.utils.data import random_split
+
+train_hard_dataset, test_hard_dataset = random_split(hard_dataset, [train_size, test_size])
+
+# Getting the indices
+train_indices = np.array(train_hard_dataset.indices)
+test_indices = np.array(test_hard_dataset.indices)
+embed_train = embed[train_indices,:]
+embed_test = embed[test_indices, :]
+
+train_dataset = APP_MATCHER(dataset, train_hard_dataset, embed_train, noise_scale = 0.5)   
+test_dataset = APP_MATCHER(dataset, test_hard_dataset, embed_test, noise_scale = 0.5)   
+
 shuffle_status = True
 
 train_loader = torch.utils.data.DataLoader(train_dataset, batch_size = batch_size, shuffle = shuffle_status)
+test_loader = torch.utils.data.DataLoader(test_dataset, batch_size = batch_size, shuffle = shuffle_status)
 
 a = next(iter(train_loader))
 
@@ -480,9 +509,16 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model.to(device).to(torch.float32)
 
 criterion = nn.TripletMarginLoss(margin=1.0, p=2)
-optimizer = optim.Adam(model.parameters(), lr=1e-3)
+optimizer = optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-5)
 
 num_epochs = 100
+patience = 10  # Number of epochs to wait for improvement before stopping
+min_delta = 0.001  # Minimum change to qualify as an improvement
+
+best_val_loss = float('inf')
+epochs_no_improve = 0
+early_stop = False
+
 training_epoch_loss = []
 validation_epoch_loss = []
 for epoch in np.arange(num_epochs):
@@ -498,21 +534,42 @@ for epoch in np.arange(num_epochs):
         loss.backward()
         optimizer.step()
 
+    model.eval()
+    with torch.no_grad():
+        validation_loss = 0
+        for batch_idx, (anchor_img, positive_img, negative_img) in enumerate(test_loader):
+            anchor_img, positive_img, negative_img = anchor_img.to(device, dtype = torch.float32), positive_img.to(device, dtype = torch.float32), negative_img.to(device, dtype = torch.float32)
+            anchor_emb, positive_emb, negative_emb = model(anchor_img, positive_img, negative_img)
+            loss = criterion(anchor_emb, positive_emb, negative_emb)
+            validation_loss+=loss.item()
+        
     training_epoch_loss.append(training_loss / len(train_loader))
+    validation_epoch_loss.append(validation_loss / len(test_loader))
     
-    print(f'Epoch {epoch}, Training Loss: {training_epoch_loss[-1]}')
+    # Check for improvement
+    if validation_epoch_loss[-1] < best_val_loss - min_delta:
+        best_val_loss = validation_epoch_loss[-1]
+        epochs_no_improve = 0
+        torch.save(model.state_dict(), f'{folder_name}/model_state_dict_epoch_{epoch}.pth')
+
+    else:
+        epochs_no_improve += 1
+    
+    print(f'Epoch {epoch}, Training Loss: {training_epoch_loss[-1]}, Validation Loss {validation_epoch_loss[-1]}')
 
 plt.figure()
-plt.title("Training Loss")
-plt.plot(training_epoch_loss, color = 'blue')
+plt.plot(training_epoch_loss, label = 'Training Loss')
+plt.plot(validation_epoch_loss, label = 'Validation Loss')
+plt.legend()
 plt.xlabel("Epoch")
 plt.ylabel("Triplet Loss")
+plt.title("Supervised Training")
 plt.savefig(f'{folder_name}/loss_curve.png')
-
 plt.show()
 
-model_rep = []
-total_dataset = TensorDataset(torch.tensor(simple_tweetyclr.stacked_windows.reshape(simple_tweetyclr.stacked_windows.shape[0], 1, 100, 151)), torch.tensor(simple_tweetyclr.stacked_labels_for_window))
+
+# model_rep = []
+# total_dataset = TensorDataset(torch.tensor(simple_tweetyclr.stacked_windows.reshape(simple_tweetyclr.stacked_windows.shape[0], 1, 100, 151)), torch.tensor(simple_tweetyclr.stacked_labels_for_window))
 
 hard_stacked_windows = simple_tweetyclr.stacked_windows[hard_indices,:]
 
@@ -574,7 +631,6 @@ forward_once_method_lines = forward_once_method.split('\n')
 
 
 # CHANGE THIS 
-train_perc = 1.0
 
 
 experiment_params = {
@@ -611,32 +667,32 @@ with open(f'{simple_tweetyclr.folder_name}/experiment_params.json', 'w') as file
 # representation for red that is translationally invariant. 
 # I will do a UMAP decomposition on red samples only
 
-hard_labels = simple_tweetyclr.stacked_labels_for_window[hard_indices,:]
+# hard_labels = simple_tweetyclr.stacked_labels_for_window[hard_indices,:]
 
-# Find rows that contain 4
-rows_with_4 = np.any(hard_labels == 4, axis=1)
+# # Find rows that contain 4
+# rows_with_4 = np.any(hard_labels == 4, axis=1)
 
-# Find rows that do not contain 10
-rows_without_10 = ~np.any(hard_labels == 10, axis=1)
+# # Find rows that do not contain 10
+# rows_without_10 = ~np.any(hard_labels == 10, axis=1)
 
-# Combine conditions: rows that contain 4 and do not contain 10
-desired_rows = np.array([rows_with_4 & rows_without_10])
-desired_rows.shape = (desired_rows.shape[1],)
+# # Combine conditions: rows that contain 4 and do not contain 10
+# desired_rows = np.array([rows_with_4 & rows_without_10])
+# desired_rows.shape = (desired_rows.shape[1],)
 
-model_rep_stacked_new = model_rep_stacked[desired_rows,:]
+# model_rep_stacked_new = model_rep_stacked[desired_rows,:]
         
-reducer = umap.UMAP(random_state=295) # For consistency
-embed = reducer.fit_transform(model_rep_stacked_new)
+# reducer = umap.UMAP(random_state=295) # For consistency
+# embed = reducer.fit_transform(model_rep_stacked_new)
 
 
-hard_colors = simple_tweetyclr.mean_colors_per_minispec[hard_indices,:]
-hard_colors = hard_colors[desired_rows,:]
-plt.figure()
-plt.scatter(embed[:,0], embed[:,1], c = hard_colors)
-plt.xlabel("UMAP 1")
-plt.ylabel("UMAP 2")
-plt.title("UMAP of the Representation Layer")
-plt.show()
+# hard_colors = simple_tweetyclr.mean_colors_per_minispec[hard_indices,:]
+# hard_colors = hard_colors[desired_rows,:]
+# plt.figure()
+# plt.scatter(embed[:,0], embed[:,1], c = hard_colors)
+# plt.xlabel("UMAP 1")
+# plt.ylabel("UMAP 2")
+# plt.title("UMAP of the Representation Layer")
+# plt.show()
 # plt.savefig(f'{folder_name}/UMAP_rep_of_model.png')
 
 
