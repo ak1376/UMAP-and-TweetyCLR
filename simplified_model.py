@@ -184,7 +184,7 @@ class Encoder(nn.Module):
             nn.ReLU(inplace=False), 
         )  
         
-        self.dropout = nn.Dropout(p=0.5)
+        self.dropout = nn.Dropout(p=0.7)
         
         # Initialize convolutional layers with He initialization
         self._initialize_weights()
@@ -223,28 +223,28 @@ class Encoder(nn.Module):
         # x = self.relu(self.bn10(self.conv10(x)))
         
         # LayerNorm
-        x = (self.relu(self.ln1(self.conv1(x))))
-        x = (self.relu(self.ln2(self.conv2(x))))
-        x = (self.relu(self.ln3(self.conv3(x))))
-        x = (self.relu(self.ln4(self.conv4(x))))
-        x = (self.relu(self.ln5(self.conv5(x))))
-        x = (self.relu(self.ln6(self.conv6(x))))
-        x = (self.relu(self.ln7(self.conv7(x))))
-        x = (self.relu(self.ln8(self.conv8(x))))
-        x = (self.relu(self.ln9(self.conv9(x))))
-        x = (self.relu(self.ln10(self.conv10(x))))
+        # x = (self.relu(self.ln1(self.conv1(x))))
+        # x = (self.relu(self.ln2(self.conv2(x))))
+        # x = (self.relu(self.ln3(self.conv3(x))))
+        # x = (self.relu(self.ln4(self.conv4(x))))
+        # x = (self.relu(self.ln5(self.conv5(x))))
+        # x = (self.relu(self.ln6(self.conv6(x))))
+        # x = (self.relu(self.ln7(self.conv7(x))))
+        # x = (self.relu(self.ln8(self.conv8(x))))
+        # x = (self.relu(self.ln9(self.conv9(x))))
+        # x = (self.relu(self.ln10(self.conv10(x))))
         
         # LayerNorm + Dropout
-        # x = self.dropout(self.relu(self.ln1(self.conv1(x))))
-        # x = self.dropout(self.relu(self.ln2(self.conv2(x))))
-        # x = self.dropout(self.relu(self.ln3(self.conv3(x))))
-        # x = self.dropout(self.relu(self.ln4(self.conv4(x))))
-        # x = self.dropout(self.relu(self.ln5(self.conv5(x))))
-        # x = self.dropout(self.relu(self.ln6(self.conv6(x))))
-        # x = self.dropout(self.relu(self.ln7(self.conv7(x))))
-        # x = self.dropout(self.relu(self.ln8(self.conv8(x))))
-        # x = self.dropout(self.relu(self.ln9(self.conv9(x))))
-        # x = self.dropout(self.relu(self.ln10(self.conv10(x))))
+        x = self.dropout(self.relu(self.ln1(self.conv1(x))))
+        x = self.dropout(self.relu(self.ln2(self.conv2(x))))
+        x = self.dropout(self.relu(self.ln3(self.conv3(x))))
+        x = self.dropout(self.relu(self.ln4(self.conv4(x))))
+        x = self.dropout(self.relu(self.ln5(self.conv5(x))))
+        x = self.dropout(self.relu(self.ln6(self.conv6(x))))
+        x = self.dropout(self.relu(self.ln7(self.conv7(x))))
+        x = self.dropout(self.relu(self.ln8(self.conv8(x))))
+        x = self.dropout(self.relu(self.ln9(self.conv9(x))))
+        x = self.dropout(self.relu(self.ln10(self.conv10(x))))
 
         x_flattened = x.view(-1, 320)
         
@@ -343,12 +343,12 @@ list_of_images = [tensor.numpy() for tensor in list_of_images]
 
 embeddable_images = simple_tweetyclr.get_images(list_of_images)
 
-simple_tweetyclr.plot_UMAP_embedding(embed, simple_tweetyclr.mean_colors_per_minispec,embeddable_images, f'{simple_tweetyclr.folder_name}/Plots/UMAP_of_all_slices.html', saveflag = True)
+# simple_tweetyclr.plot_UMAP_embedding(embed, simple_tweetyclr.mean_colors_per_minispec,embeddable_images, f'{simple_tweetyclr.folder_name}/Plots/UMAP_of_all_slices.html', saveflag = True)
 
-hard_dataset = data_for_analysis[hard_indices,:].reshape(len(hard_indices), 1, 100, 151)
+hard_dataset = data_for_analysis[hard_indices,:].reshape(len(hard_indices), 1, 100, 151) # Dataset of all the confused spectrogram slices that we want to untangle
 
-dataset = TensorDataset(torch.tensor(data_for_analysis), torch.tensor(np.arange(data_for_analysis.shape[0])))
-hard_dataset = TensorDataset(torch.tensor(hard_dataset), torch.tensor(hard_indices))
+dataset = TensorDataset(torch.tensor(data_for_analysis), torch.tensor(np.arange(data_for_analysis.shape[0]))) # The full dataset of all slices
+hard_dataset = TensorDataset(torch.tensor(hard_dataset), torch.tensor(hard_indices)) # The dataset of just the hard indices
 
 
 # In[2]: I want to define a class where I select positive and negative samples. Here is the criterion for each
@@ -367,9 +367,9 @@ class APP_MATCHER(Dataset):
         super(APP_MATCHER, self).__init__()
         
         # Extracting all slices and indices
-        all_features, all_indices = zip(*[dataset[i] for i in range(len(dataset))])
+        all_features, all_indices = zip(*[dataset[i] for i in range(len(dataset))]) # This will be used to create the all_possible_negatives region 
         
-        hard_features, hard_indices = zip(*[hard_dataset[i] for i in range(len(hard_dataset))])
+        hard_features, hard_indices = zip(*[hard_dataset[i] for i in range(len(hard_dataset))]) # This will be used to create all the hard features
         
         # Converting lists of tensors to a single tensor
         all_features, all_indices = torch.stack(all_features), torch.stack(all_indices)
@@ -497,7 +497,7 @@ test_size = len(hard_dataset) - train_size  # 100 - (100*train_perc)% for testin
 
 from torch.utils.data import random_split
 
-train_hard_dataset, test_hard_dataset = random_split(hard_dataset, [train_size, test_size])
+train_hard_dataset, test_hard_dataset = random_split(hard_dataset, [train_size, test_size]) 
 
 
 # I want to randomly select training anchors (which should be 25% of the data).
@@ -576,6 +576,7 @@ training_batch_loss = []
 validation_epoch_loss = []
 validation_batch_loss = []
 for epoch in np.arange(num_epochs):
+    model.to(device).to(torch.float32)
     model.train()
     training_loss = 0
     for batch_idx, (anchor_img, positive_img, negative_img) in enumerate(train_loader):
@@ -589,6 +590,40 @@ for epoch in np.arange(num_epochs):
         loss.backward()
         optimizer.step()
 
+    
+    # DEBUGGING STEP: LOOKING AT THE MODEL REPRESENTATIONS
+# =============================================================================
+#     # TRAINING
+# =============================================================================
+    
+    if epoch%5 == 0:
+        model_rep_train = []
+        model_for_eval = model.module
+        train_loader = torch.utils.data.DataLoader(train_dataset, batch_size = batch_size, shuffle = False)
+        # model_for_eval = model_for_eval.to('cpu')
+        model_for_eval.eval()
+        
+        with torch.no_grad():
+            for batch_idx, (anchor_img, positive_img, negative_img) in enumerate(train_loader):
+                data = anchor_img.to(torch.float32).to(device)
+                output = model_for_eval.forward_once(data)
+                model_rep_train.append(output.cpu().detach().numpy())
+        
+        model_rep_stacked = np.concatenate((model_rep_train))
+        
+        reducer = umap.UMAP(metric = 'cosine', random_state=295) # For consistency
+        embed_train = reducer.fit_transform(model_rep_stacked)
+        
+        plt.figure()
+        plt.scatter(embed_train[:,0], embed_train[:,1], c = simple_tweetyclr.mean_colors_per_minispec[hard_indices[train_indices],:])
+        plt.xlabel("UMAP 1")
+        plt.ylabel("UMAP 2")
+        plt.suptitle(f'UMAP Representation of Training Hard Region')
+        plt.title(f'Total Slices: {embed_train.shape[0]}')
+        plt.show()
+        plt.savefig(f'{folder_name}/UMAP_rep_of_model_train_epoch_{epoch}.png')
+
+    # model.to(device).to(torch.float32)
     model.eval()
     with torch.no_grad():
         validation_loss = 0
@@ -601,6 +636,39 @@ for epoch in np.arange(num_epochs):
         
     training_epoch_loss.append(training_loss / len(train_loader))
     validation_epoch_loss.append(validation_loss / len(test_loader))
+    
+    
+# # =============================================================================
+# #     # TESTING
+# # =============================================================================
+
+    if epoch%5 == 0:
+        model_rep_test = []
+        test_loader = torch.utils.data.DataLoader(test_dataset, batch_size = batch_size, shuffle = False)
+        model_for_eval = model.module
+        # model_for_eval = model_for_eval.to('cpu')
+        model_for_eval.eval()
+        with torch.no_grad():
+            for batch_idx, (anchor_img, positive_img, negative_img) in enumerate(test_loader):
+                data = anchor_img.to(torch.float32).to(device)
+                output = model_for_eval.forward_once(data)
+                model_rep_test.append(output.cpu().detach().numpy())
+        
+        model_rep_stacked = np.concatenate((model_rep_test))
+        
+        import umap
+        reducer = umap.UMAP(metric = 'cosine', random_state=295) # For consistency
+        embed_test = reducer.fit_transform(model_rep_stacked)
+        
+        plt.figure()
+        plt.scatter(embed_test[:,0], embed_test[:,1], c = simple_tweetyclr.mean_colors_per_minispec[hard_indices[test_indices],:])
+        plt.xlabel("UMAP 1")
+        plt.ylabel("UMAP 2")
+        plt.suptitle("UMAP of the Testing Hard Region")
+        plt.title(f'Total Slices: {embed_test.shape[0]}')
+        plt.show()
+        plt.savefig(f'{folder_name}/UMAP_rep_of_model_test_epoch_{epoch}.png')
+
     
     # Check for improvement
     if validation_epoch_loss[-1] + min_delta < best_val_loss:
@@ -749,27 +817,6 @@ plt.suptitle("UMAP of the Testing Hard Region")
 plt.title(f'Total Slices: {embed_test.shape[0]}')
 plt.show()
 plt.savefig(f'{folder_name}/UMAP_rep_of_model_test.png')
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 # # Bokeh Plot

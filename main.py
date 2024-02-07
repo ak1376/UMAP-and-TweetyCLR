@@ -9,7 +9,7 @@ Created on Wed Nov 15 14:40:41 2023
 import numpy as np
 import torch
 import sys
-filepath = '/Users/AnanyaKapoor'
+filepath = '/home/akapoor'
 # sys.path.append(f'{filepath}/Dropbox (University of Oregon)/Kapoor_Ananya/01_Projects/01_b_Canary_SSL/TweetyCLR_Repo/')
 from util import MetricMonitor, SupConLoss
 from util import Tweetyclr, Temporal_Augmentation, TwoCropTransform, Custom_Contrastive_Dataset
