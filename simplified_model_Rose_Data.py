@@ -546,8 +546,8 @@ test_indices = np.array(test_hard_dataset.indices)
 embed_train = embed[hard_indices[train_indices],:]
 embed_test = embed[hard_indices[test_indices], :]
 
-train_dataset = APP_MATCHER(dataset, train_hard_dataset, embed_train, noise_scale = 1.0)   
-test_dataset = APP_MATCHER(dataset, test_hard_dataset, embed_test, noise_scale = 1.0)   
+train_dataset = APP_MATCHER(dataset, train_hard_dataset, embed_train, noise_scale = 10.0)   
+test_dataset = APP_MATCHER(dataset, test_hard_dataset, embed_test, noise_scale = 10.0)   
 
 shuffle_status = True
 
@@ -567,8 +567,8 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model.to(device).to(torch.float32)
 
 criterion = nn.TripletMarginLoss(margin=1.0, p=2)
-# optimizer = optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-5)
-optimizer = optim.Adam(model.parameters(), lr=1e-3)
+optimizer = optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-5)
+# optimizer = optim.Adam(model.parameters(), lr=1e-3)
 
 num_epochs = 100
 patience = 30  # Number of epochs to wait for improvement before stopping
@@ -711,7 +711,7 @@ plt.plot(training_batch_loss, label = 'Training Loss')
 plt.plot(validation_batch_loss, label = 'Validation Loss')
 plt.legend()
 plt.xlabel("Batch Number")
-plt.ylabel("Triplet Loss")
+plt.ylabel("Raw Triplet Loss")
 plt.title("Unsupervised Training")
 plt.savefig(f'{folder_name}/loss_curve.png')
 plt.show()
