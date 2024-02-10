@@ -541,11 +541,12 @@ def infonce_loss_function(feats, temperature = 1.0):
 
 # Scratch code for infonce loss function. Written for just 2 augmentations. 
 
-temperature = 1.0
+temperature = 0.02
 num_augmentations = 2
 optimizer = optim.Adam(model.parameters(), lr=1e-3)
 training_batch_loss = []
 num_epochs = 10
+
 for epoch in np.arange(num_epochs):
     model.to(device).to(torch.float32)
     model.train()
@@ -844,14 +845,14 @@ plt.show()
 # =============================================================================
 
 model_rep_train = []
-train_loader = torch.utils.data.DataLoader(train_dataset, batch_size = batch_size, shuffle = False)
+train_loader = torch.utils.data.DataLoader(training_dataset, batch_size = batch_size, shuffle = False)
 
 model = model.to('cpu')
 model.eval()
 with torch.no_grad():
-    for batch_idx, (anchor_img, positive_img, negative_img, negative_index) in enumerate(train_loader):
-        data = anchor_img.to(torch.float32)
-        output = model.module.forward_once(data)
+    for batch_idx, (anchor_img, negative_img, negative_index) in enumerate(train_loader):
+        data = anchor_img.to(torch.float32).squeeze(1)
+        output = model.forward_once(data)
         model_rep_train.append(output.numpy())
 
 model_rep_stacked = np.concatenate((model_rep_train))
@@ -874,13 +875,13 @@ plt.savefig(f'{folder_name}/UMAP_rep_of_model_train.png')
 # =============================================================================
 
 model_rep_test = []
-test_loader = torch.utils.data.DataLoader(test_dataset, batch_size = batch_size, shuffle = False)
+test_loader = torch.utils.data.DataLoader(testing_dataset, batch_size = batch_size, shuffle = False)
 
 model = model.to('cpu')
 model.eval()
 with torch.no_grad():
-    for batch_idx, (anchor_img, positive_img, negative_img, negative_index) in enumerate(test_loader):
-        data = anchor_img.to(torch.float32)
+    for batch_idx, (anchor_img, negative_img, negative_index) in enumerate(test_loader):
+        data = anchor_img.to(torch.float32).unsqueeze(1)
         output = model.module.forward_once(data)
         model_rep_test.append(output.numpy())
 
