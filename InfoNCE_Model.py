@@ -426,6 +426,8 @@ test_loader = torch.utils.data.DataLoader(testing_dataset, batch_size = batch_si
 
 anchor_img, negative_imgs, negative_indices = next(iter(train_loader))
 
+a = torch.cat((anchor_img, negative_imgs), dim = 1)
+
 # Dimensions of the output: 
     # anchor_img: [batch_size, 1, 1, 100, 151]
     # negative_img: [batch_size, k_neg, 1, 100, 151]
@@ -433,60 +435,75 @@ anchor_img, negative_imgs, negative_indices = next(iter(train_loader))
 
 # In[3]: I want to create an object that will do white noise augmentation 
 
-class White_Noise():
-    def __init__(self, num_augmentations, noise_level = 1.0):
-        self.num_augmentations = num_augmentations
-        self.noise_level = noise_level
+# class White_Noise():
+#     def __init__(self, num_augmentations, noise_level = 1.0):
+#         self.num_augmentations = num_augmentations
+#         self.noise_level = noise_level
         
-    def augment_with_white_noise_k_times(self, images):
-        """
-        Apply k white noise augmentations to 5D PyTorch tensors.
+#     def augment_with_white_noise_k_times(self, images):
+#         """
+#         Apply k white noise augmentations to 5D PyTorch tensors.
     
-        Parameters:
-        - images: 5D PyTorch tensor of shape [batch_size, k_samples, 1, width, height]
-        - k: int, the number of white noise augmentations to apply
-        - noise_scale: float, the scale of the noise, relative to the data range
+#         Parameters:
+#         - images: 5D PyTorch tensor of shape [batch_size, k_samples, 1, width, height]
+#         - k: int, the number of white noise augmentations to apply
+#         - noise_scale: float, the scale of the noise, relative to the data range
     
-        Returns:
-        - Augmented images: 6D PyTorch tensor of shape [k, batch_size, k_samples, 1, width, height]
-        """
-        # Generate noise for all augmentations in one go
-        # The noise shape needs to match images shape, except we add k as the first dimension
-        k = self.num_augmentations
-        noise_shape = (k,) + images.shape
-        noise = torch.rand(noise_shape) * self.noise_level
+#         Returns:
+#         - Augmented images: 6D PyTorch tensor of shape [k, batch_size, k_samples, 1, width, height]
+#         """
+#         # Generate noise for all augmentations in one go
+#         # The noise shape needs to match images shape, except we add k as the first dimension
+#         k = self.num_augmentations
+#         noise_shape = (k,) + images.shape
+#         noise = torch.rand(noise_shape) * self.noise_level
         
-        # Expand the original images tensor to match the noise tensor shape for broadcasting
-        images_expanded = images.unsqueeze(0).expand(noise_shape)
+#         # Expand the original images tensor to match the noise tensor shape for broadcasting
+#         images_expanded = images.unsqueeze(0).expand(noise_shape)
         
-        # Add the noise to the expanded images tensor and clip values to be between 0 and 1
-        noisy_images = torch.clamp(images_expanded + noise, 0, 1)
+#         # Add the noise to the expanded images tensor and clip values to be between 0 and 1
+#         noisy_images = torch.clamp(images_expanded + noise, 0, 1)
         
-        return noisy_images
+#         return noisy_images
     
     
     
-    def __call__(self, anchor_img, negative_imgs): 
-        # Corrected method calls without passing 'self' explicitly
-        anchor_augmented = self.augment_with_white_noise_k_times(anchor_img)
-        neg_augmented = self.augment_with_white_noise_k_times(negative_imgs)
+#     def __call__(self, anchor_img, negative_imgs): 
+#         # Corrected method calls without passing 'self' explicitly
+#         anchor_augmented = self.augment_with_white_noise_k_times(anchor_img)
+#         neg_augmented = self.augment_with_white_noise_k_times(negative_imgs)
         
-        return anchor_augmented, neg_augmented
+#         return anchor_augmented, neg_augmented
         
+def add_white_noise(tensor, num_augmentations, noise_level=0.5):
+    """
+    Adds white noise to a tensor.
+    
+    Parameters:
+    - tensor: input tensor.
+    - noise_level: scale of the noise relative to the input values (default: 0.01).
+    
+    Returns:
+    - A new tensor with added white noise.
+    """
+    
+    tensor_copy_list = []
+    
+    for i in np.arange(num_augmentations):
+        tensor_copy = tensor.clone()
+        noise = torch.randn_like(tensor_copy) * noise_level
+        tensor_copy+=noise
+        tensor_copy_list.append(tensor+noise)
         
-anchor_img_squeezed = anchor_img.squeeze(2)  # Removing the singleton dimension for compatibility
+    augmented_tensor = torch.cat(tensor_copy_list)
+        
+    return augmented_tensor
+   
+# anchor_img_squeezed = anchor_img.squeeze(2)  # Removing the singleton dimension for compatibility
 
 num_augmentations = 2 
 
-
-wn = White_Noise(num_augmentations, noise_level = 1.0)
-
-anchor_aug, negative_aug = wn(anchor_img, negative_imgs)
-
-reshaped_aug = anchor_aug.squeeze().unsqueeze(1)
-reshaped_neg = negative_aug.reshape(negative_aug.shape[0]*negative_aug.shape[1]*negative_aug.shape[2], 1, 100, 151)   
-        
-# I can then pass reshaped_aug and reshaped_neg both through the network and easily calculate the loss function
+augmented_tensor = add_white_noise(a, 2) # This will return a [num_augmentations, batch_size, 1, 100, 151] tensor
 
 model = Encoder()
 # Check if multiple GPUs are available
@@ -498,9 +515,34 @@ if torch.cuda.device_count() > 1:
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model.to(device).to(torch.float32)
 
+def infonce_loss_function(feats, temperature = 1.0):
+    
+    # Calculate cosine similarity
+    cos_sim = F.cosine_similarity(feats[:, None, :], feats[None, :, :], dim=-1)
+    
+    # Mask out cosine similarity to itself
+    self_mask = torch.eye(cos_sim.shape[0], dtype=torch.bool, device=cos_sim.device)
+    cos_sim = cos_sim.masked_fill_(self_mask, -9e15)
+    
+    # Adjusting positive mask for augmented instances
+    # Each instance is now considered next to its augmentations as positive
+    pos_mask = torch.roll(self_mask, shifts=batch_size, dims=0)
+    
+    for i in range(1, num_augmentations):
+        pos_mask |= torch.roll(self_mask, shifts=i*batch_size, dims=0)
+    
+    # InfoNCE loss
+    cos_sim = cos_sim / temperature
+    
+    nll = -cos_sim[pos_mask] + torch.logsumexp(cos_sim, dim=-1)
+    nll = nll.mean()
+    
+    return nll
+
 # Scratch code for infonce loss function. Written for just 2 augmentations. 
 
 temperature = 1.0
+num_augmentations = 2
 optimizer = optim.Adam(model.parameters(), lr=1e-3)
 training_batch_loss = []
 num_epochs = 10
@@ -511,26 +553,20 @@ for epoch in np.arange(num_epochs):
 
     for batch_idx, (anchor_img, negative_imgs, negative_indices) in enumerate(train_loader):
         optimizer.zero_grad()
-        anchor_aug, negative_aug = wn(anchor_img, negative_imgs)
-    
-        reshaped_aug = anchor_aug.squeeze().unsqueeze(1)
-        reshaped_neg = negative_aug.reshape(negative_aug.shape[0]*negative_aug.shape[1]*negative_aug.shape[2], 1, 100, 151)   
-    
-        # ANCHOR AUGS
-        conv_output_anchor_aug = model.forward(reshaped_aug.to(torch.float32))
-        anchor_aug_features = F.normalize(conv_output_anchor_aug, dim=1)
-        anchor_aug_similarity = torch.matmul(anchor_aug_features, anchor_aug_features.T)
+        imgs = torch.cat((anchor_img, negative_imgs), dim = 1)
+        augmented_tensor = add_white_noise(a, num_augmentations, noise_level = 0) # This will return a [num_augmentations, batch_size, 1, 100, 151] tensor
         
-        anchor_aug_sim_val = torch.exp(anchor_aug_similarity[0,1]/temperature)
+        imgs = augmented_tensor.clone()
+        # Reshape to treat each augmentation as a separate instance
+        batch_size = imgs.shape[1]
+        num_augmentations = imgs.shape[0]
+        imgs = imgs.view(-1, *imgs.shape[2:]).to(device)  # Flatten num_augmentations and batch_size dimensions
         
-        # NEGATIVE AUGS
         
-        conv_output_neg_aug = model.forward(reshaped_neg.to(torch.float32))
-        neg_aug_features = F.normalize(conv_output_neg_aug, dim=1)
-        neg_aug_similarity = torch.matmul(neg_aug_features, neg_aug_features.T)
-        neg_aug_sim_val = torch.sum(torch.exp(neg_aug_similarity[0,1:-1]/temperature))
+        feats = model.forward(imgs.to(torch.float32))
         
-        loss = -torch.log(anchor_aug_sim_val/neg_aug_sim_val)
+        loss = infonce_loss_function(feats, temperature)
+        
         print(loss.item())
         
         training_loss+=loss.item()
