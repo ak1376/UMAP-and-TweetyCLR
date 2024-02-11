@@ -14,8 +14,8 @@ positive pairs and reimplement the loss function.
 import numpy as np
 import torch
 import sys
-filepath = '/home/akapoor'
-# filepath = '/Users/AnanyaKapoor'
+# filepath = '/home/akapoor'
+filepath = '/Users/AnanyaKapoor'
 import os
 # os.chdir('/Users/AnanyaKapoor/Downloads/TweetyCLR')
 os.chdir(f'{filepath}/Dropbox (University of Oregon)/Kapoor_Ananya/01_Projects/01_b_Canary_SSL/TweetyCLR_End_to_End')
@@ -405,11 +405,6 @@ class Curating_Dataset(Dataset):
         
         x = torch.cat((anchor_img, negative_imgs), dim = 0)
         
-        x = x.unsqueeze(0)  # This changes shape from [(k_neg + 1), 1, 100, 151] to [1, (k_neg + 1), 1, 100, 151]
-
-        # Now, flatten the dimensions [1, (k_neg + 1)] to get [k_neg + 1, 1, 100, 151]
-        x = x.view(-1, 1, 100, 151)  # Final x shape is [(k_neg + 1), 1, 100, 151]
-
         return x, negative_indices
 
 # Let's define the set of easy negatives
@@ -420,8 +415,8 @@ easy_negatives = np.setdiff1d(total_indices, hard_indices)
 easy_negatives = torch.tensor(easy_negatives)
 shuffle_status = True
 noise_level = 1.0
-batch_size = 18
-k_neg = 10
+batch_size = 1
+k_neg = 64
 
 training_dataset = Curating_Dataset(k_neg, train_hard_dataset, easy_negatives, dataset)
 testing_dataset = Curating_Dataset(k_neg, test_hard_dataset, easy_negatives, dataset)
@@ -548,28 +543,70 @@ def infonce_loss_function(feats, batch_size, temperature = 1.0):
 temperature = 1.0
 num_augmentations = 2
 optimizer = optim.Adam(model.parameters(), lr=1e-3)
+
 training_batch_loss = []
-pos_sim_batch = []
-neg_sim_batch = []
+pos_sim_train_batch = []
+neg_sim_train_batch = []
+training_epoch_loss = []
+
+validation_batch_loss = []
+pos_sim_val_batch = []
+neg_sim_val_batch = []
+validation_epoch_loss = []
+
 num_epochs = 10
-
+model.to(device).to(torch.float32)
 for epoch in np.arange(num_epochs):
-    model.to(device).to(torch.float32)
     model.train()
-
+    training_loss = 0
+    
     for batch_idx, (batch, negative_indices) in enumerate(train_loader):
+        
+        batch_train_loss = 0
+        pos_sim_train_value = 0
+        neg_sim_train_value = 0
+
         optimizer.zero_grad()
+
+        batch_size = batch.shape[1]
+        batch = batch.squeeze(0)
+  
+        augmented_tensor = add_white_noise(batch, num_augmentations, noise_level = 0.05) 
+
+        num_augmentations = augmented_tensor.shape[0]
         
-        batch_size = batch.shape[0]
-        num_samples_per_batch = batch.shape[1]
+        # Reshape the tensor
+        batch_dat = augmented_tensor.view(augmented_tensor.shape[0]*augmented_tensor.shape[1], 1, 100, 151)
+
+        feats = model.forward(batch_dat.to(torch.float32))
         
-        batch_loss = 0
-        pos_sim_value = 0
-        neg_sim_value = 0
+        loss, pos_sim, neg_sim = infonce_loss_function(feats, batch_size, temperature)
+
+                
+        pos_sim_train_value+=pos_sim.item()
+        neg_sim_train_value+=neg_sim.item()
+        batch_train_loss+=loss.item()
+            
+            
+        training_batch_loss.append(batch_train_loss)
+        pos_sim_train_batch.append(pos_sim_train_value)
+        neg_sim_train_batch.append(neg_sim_train_value)
+
+        loss.backward()
+        optimizer.step()
         
-        for b in np.arange(batch_size):
-            tensor_val = batch[b,:,:,:,:].clone()
-            augmented_tensor = add_white_noise(tensor_val, num_augmentations, noise_level = 0.05) 
+    model.eval()
+    with torch.no_grad():
+        validation_loss = 0
+        for batch_idx, (batch, negative_indices) in enumerate(test_loader):
+            batch_val_loss = 0
+            pos_sim_val_value = 0
+            neg_sim_val_value = 0
+            
+            batch_size = batch.shape[1]
+            batch = batch.squeeze(0)
+      
+            augmented_tensor = add_white_noise(batch, num_augmentations, noise_level = 0.05) 
 
             num_augmentations = augmented_tensor.shape[0]
             
@@ -578,20 +615,23 @@ for epoch in np.arange(num_epochs):
 
             feats = model.forward(batch_dat.to(torch.float32))
             
-            loss, pos_sim, neg_sim = infonce_loss_function(feats, num_samples_per_batch, temperature)
+            loss, pos_sim, neg_sim = infonce_loss_function(feats, batch_size, temperature)
 
-                    
-            pos_sim_value+=pos_sim.item()
-            neg_sim_value+=neg_sim.item()
-            batch_loss+=loss.item()
+            pos_sim_val_value+=pos_sim.item()
+            neg_sim_val_value+=neg_sim.item()
+            batch_val_loss+=loss.item()
+                
+                
+            validation_batch_loss.append(batch_train_loss)
+            pos_sim_val_batch.append(pos_sim_train_value)
+            neg_sim_val_batch.append(neg_sim_train_value)
             
-            
-        training_batch_loss.append(batch_loss/batch_size)
-        pos_sim_batch.append(pos_sim_value/batch_size)
-        neg_sim_batch.append(neg_sim_value/batch_size)
+        training_epoch_loss.append(training_loss / len(train_loader))
+        validation_epoch_loss.append(validation_loss / len(test_loader))
+        
+        print(f'Epoch {epoch}, Training Loss: {training_epoch_loss[-1]}, Validation Loss {validation_epoch_loss[-1]}')
 
-        loss.backward()
-        optimizer.step()
+
 
 
 
@@ -862,14 +902,14 @@ plt.show()
 # =============================================================================
 
 model_rep_train = []
-train_loader = torch.utils.data.DataLoader(training_dataset, batch_size = batch_size, shuffle = False)
+train_hard_loader = torch.utils.data.DataLoader(train_hard_dataset, batch_size = batch_size, shuffle = False)
 
 model = model.to('cpu')
 model.eval()
 with torch.no_grad():
-    for batch_idx, (anchor_img, negative_img, negative_index) in enumerate(train_loader):
-        data = anchor_img.to(torch.float32).squeeze(1)
-        output = model.forward_once(data)
+    for batch_idx, (anchor_img, _ ) in enumerate(train_hard_loader):
+        data = anchor_img.to(torch.float32)
+        output = model.module.forward_once(data)
         model_rep_train.append(output.numpy())
 
 model_rep_stacked = np.concatenate((model_rep_train))
