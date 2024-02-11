@@ -14,8 +14,8 @@ positive pairs and reimplement the loss function.
 import numpy as np
 import torch
 import sys
-# filepath = '/home/akapoor'
-filepath = '/Users/AnanyaKapoor'
+filepath = '/home/akapoor'
+# filepath = '/Users/AnanyaKapoor'
 import os
 # os.chdir('/Users/AnanyaKapoor/Downloads/TweetyCLR')
 os.chdir(f'{filepath}/Dropbox (University of Oregon)/Kapoor_Ananya/01_Projects/01_b_Canary_SSL/TweetyCLR_End_to_End')
@@ -337,13 +337,13 @@ test_indices = np.array(test_hard_dataset.indices)
 embed_train = embed[hard_indices[train_indices],:]
 embed_test = embed[hard_indices[test_indices], :]
 
-# These are the training hard anchors and the testing hard anchors. I have two options
-# 1. Creating another training and testing dataloader where the batches contain the negatives already (batch = t(anchor), t'(anchor), t(negatives), t'(negatives))
-# 2. For each sample in the hard train dataloader and hard test dataloader
-#   a. select batch_size - 1 negatives
-#   b. apply augmentations to each sample in the batch
 
-# I am more inclined to do 1 instead of 2
+# Problem: I want a dataloader to have each batch to be of shape [(k_neg + 1), 1, 100, 151]
+
+
+
+
+
 
 class Curating_Dataset(Dataset):
     def __init__(self, k_neg, hard_dataset, easy_negatives, dataset):
@@ -403,9 +403,14 @@ class Curating_Dataset(Dataset):
         
         negative_imgs = self.all_features[negative_indices, :, :, :]
         
-        # x = torch.cat((anchor_img, negative_imgs), dim = 0)
+        x = torch.cat((anchor_img, negative_imgs), dim = 0)
         
-        return anchor_img, negative_imgs, negative_indices
+        x = x.unsqueeze(0)  # This changes shape from [(k_neg + 1), 1, 100, 151] to [1, (k_neg + 1), 1, 100, 151]
+
+        # Now, flatten the dimensions [1, (k_neg + 1)] to get [k_neg + 1, 1, 100, 151]
+        x = x.view(-1, 1, 100, 151)  # Final x shape is [(k_neg + 1), 1, 100, 151]
+
+        return x, negative_indices
 
 # Let's define the set of easy negatives
 
@@ -415,18 +420,17 @@ easy_negatives = np.setdiff1d(total_indices, hard_indices)
 easy_negatives = torch.tensor(easy_negatives)
 shuffle_status = True
 noise_level = 1.0
-
-k_neg = 31
+batch_size = 18
+k_neg = 10
 
 training_dataset = Curating_Dataset(k_neg, train_hard_dataset, easy_negatives, dataset)
 testing_dataset = Curating_Dataset(k_neg, test_hard_dataset, easy_negatives, dataset)
 
+
 train_loader = torch.utils.data.DataLoader(training_dataset, batch_size = batch_size, shuffle = shuffle_status)
 test_loader = torch.utils.data.DataLoader(testing_dataset, batch_size = batch_size, shuffle = shuffle_status)
 
-anchor_img, negative_imgs, negative_indices = next(iter(train_loader))
-
-a = torch.cat((anchor_img, negative_imgs), dim = 1)
+batch, negative_indices = next(iter(train_loader))
 
 # Dimensions of the output: 
     # anchor_img: [batch_size, 1, 1, 100, 151]
@@ -477,34 +481,28 @@ a = torch.cat((anchor_img, negative_imgs), dim = 1)
         
 def add_white_noise(tensor, num_augmentations, noise_level=0.5):
     """
-    Adds white noise to a tensor.
+    Adds white noise to a tensor and creates a new tensor with augmented data along the first dimension.
     
     Parameters:
     - tensor: input tensor.
-    - noise_level: scale of the noise relative to the input values (default: 0.01).
+    - num_augmentations: number of noisy augmentations to create.
+    - noise_level: scale of the noise relative to the input values (default: 0.5).
     
     Returns:
-    - A new tensor with added white noise.
+    - A new tensor with added white noise where the first dimension is the number of augmentations.
     """
     
     tensor_copy_list = []
     
-    for i in np.arange(num_augmentations):
-        tensor_copy = tensor.clone()
-        noise = torch.randn_like(tensor_copy) * noise_level
-        tensor_copy+=noise
-        tensor_copy_list.append(tensor+noise)
+    for _ in range(num_augmentations):
+        noise = torch.randn_like(tensor) * noise_level
+        tensor_copy = tensor + noise
+        tensor_copy_list.append(tensor_copy.unsqueeze(0))
         
-    augmented_tensor = torch.cat(tensor_copy_list)
+    augmented_tensor = torch.cat(tensor_copy_list, dim=0)
         
     return augmented_tensor
    
-# anchor_img_squeezed = anchor_img.squeeze(2)  # Removing the singleton dimension for compatibility
-
-num_augmentations = 2 
-
-augmented_tensor = add_white_noise(a, 2) # This will return a [num_augmentations, batch_size, 1, 100, 151] tensor
-
 model = Encoder()
 # Check if multiple GPUs are available
 if torch.cuda.device_count() > 1:
@@ -515,7 +513,7 @@ if torch.cuda.device_count() > 1:
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model.to(device).to(torch.float32)
 
-def infonce_loss_function(feats, temperature = 1.0):
+def infonce_loss_function(feats, batch_size, temperature = 1.0):
     
     # Calculate cosine similarity
     cos_sim = F.cosine_similarity(feats[:, None, :], feats[None, :, :], dim=-1)
@@ -531,48 +529,67 @@ def infonce_loss_function(feats, temperature = 1.0):
     for i in range(1, num_augmentations):
         pos_mask |= torch.roll(self_mask, shifts=i*batch_size, dims=0)
     
+    # Let's find the positive similarities for this batch and take the average and store
+    pos_sim = cos_sim[pos_mask].mean()
+    
+    # Let's find the negative similarities for this batch and take the average and store
+    neg_sim = cos_sim[(~pos_mask) & (~self_mask)].mean()
+    
     # InfoNCE loss
     cos_sim = cos_sim / temperature
     
     nll = -cos_sim[pos_mask] + torch.logsumexp(cos_sim, dim=-1)
     nll = nll.mean()
     
-    return nll
+    return nll, pos_sim, neg_sim
 
 # Scratch code for infonce loss function. Written for just 2 augmentations. 
 
-temperature = 0.02
+temperature = 1.0
 num_augmentations = 2
 optimizer = optim.Adam(model.parameters(), lr=1e-3)
 training_batch_loss = []
+pos_sim_batch = []
+neg_sim_batch = []
 num_epochs = 10
 
 for epoch in np.arange(num_epochs):
     model.to(device).to(torch.float32)
     model.train()
-    training_loss = 0
 
-    for batch_idx, (anchor_img, negative_imgs, negative_indices) in enumerate(train_loader):
+    for batch_idx, (batch, negative_indices) in enumerate(train_loader):
         optimizer.zero_grad()
-        imgs = torch.cat((anchor_img, negative_imgs), dim = 1)
-        augmented_tensor = add_white_noise(a, num_augmentations, noise_level = 0) # This will return a [num_augmentations, batch_size, 1, 100, 151] tensor
         
-        imgs = augmented_tensor.clone()
-        # Reshape to treat each augmentation as a separate instance
-        batch_size = imgs.shape[1]
-        num_augmentations = imgs.shape[0]
-        imgs = imgs.view(-1, *imgs.shape[2:]).to(device)  # Flatten num_augmentations and batch_size dimensions
+        batch_size = batch.shape[0]
+        num_samples_per_batch = batch.shape[1]
         
+        batch_loss = 0
+        pos_sim_value = 0
+        neg_sim_value = 0
         
-        feats = model.forward(imgs.to(torch.float32))
-        
-        loss = infonce_loss_function(feats, temperature)
-        
-        print(loss.item())
-        
-        training_loss+=loss.item()
-        training_batch_loss.append(loss.item())
-        
+        for b in np.arange(batch_size):
+            tensor_val = batch[b,:,:,:,:].clone()
+            augmented_tensor = add_white_noise(tensor_val, num_augmentations, noise_level = 0.05) 
+
+            num_augmentations = augmented_tensor.shape[0]
+            
+            # Reshape the tensor
+            batch_dat = augmented_tensor.view(augmented_tensor.shape[0]*augmented_tensor.shape[1], 1, 100, 151)
+
+            feats = model.forward(batch_dat.to(torch.float32))
+            
+            loss, pos_sim, neg_sim = infonce_loss_function(feats, num_samples_per_batch, temperature)
+
+                    
+            pos_sim_value+=pos_sim.item()
+            neg_sim_value+=neg_sim.item()
+            batch_loss+=loss.item()
+            
+            
+        training_batch_loss.append(batch_loss/batch_size)
+        pos_sim_batch.append(pos_sim_value/batch_size)
+        neg_sim_batch.append(neg_sim_value/batch_size)
+
         loss.backward()
         optimizer.step()
 
