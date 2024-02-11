@@ -416,7 +416,7 @@ easy_negatives = torch.tensor(easy_negatives)
 shuffle_status = True
 noise_level = 1.0
 batch_size = 1
-k_neg = 64
+k_neg = 5
 
 training_dataset = Curating_Dataset(k_neg, train_hard_dataset, easy_negatives, dataset)
 testing_dataset = Curating_Dataset(k_neg, test_hard_dataset, easy_negatives, dataset)
@@ -585,10 +585,10 @@ for epoch in np.arange(num_epochs):
                 
         pos_sim_train_value+=pos_sim.item()
         neg_sim_train_value+=neg_sim.item()
-        batch_train_loss+=loss.item()
+        training_loss+=loss.item()
             
             
-        training_batch_loss.append(batch_train_loss)
+        training_batch_loss.append(loss.item())
         pos_sim_train_batch.append(pos_sim_train_value)
         neg_sim_train_batch.append(neg_sim_train_value)
 
@@ -619,12 +619,12 @@ for epoch in np.arange(num_epochs):
 
             pos_sim_val_value+=pos_sim.item()
             neg_sim_val_value+=neg_sim.item()
-            batch_val_loss+=loss.item()
+            validation_loss+=loss.item()
                 
                 
-            validation_batch_loss.append(batch_train_loss)
-            pos_sim_val_batch.append(pos_sim_train_value)
-            neg_sim_val_batch.append(neg_sim_train_value)
+            validation_batch_loss.append(loss.item())
+            pos_sim_val_batch.append(pos_sim_val_value)
+            neg_sim_val_batch.append(neg_sim_val_value)
             
         training_epoch_loss.append(training_loss / len(train_loader))
         validation_epoch_loss.append(validation_loss / len(test_loader))
