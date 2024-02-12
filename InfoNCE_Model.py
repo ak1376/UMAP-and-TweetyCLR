@@ -3,10 +3,7 @@
 """
 Created on Sun Jan 28 21:10:36 2024
 
-Now upon training the model using the triplet loss, I will return to the 
-UMAP + TweetyCLR model using the InfoNCE loss function. This will require that
-I apply the augmentation scheme to each image in a batch, keep track of the 
-positive pairs and reimplement the loss function. 
+What I want to do is 
 
 @author: akapoor
 """
@@ -127,7 +124,7 @@ stacked_windows.shape = (stacked_windows.shape[0], 100*151)
 
 # Set up a base dataloader (which we won't directly use for modeling). Also define the batch size of interest
 total_dataset = TensorDataset(torch.tensor(simple_tweetyclr.stacked_windows.reshape(simple_tweetyclr.stacked_windows.shape[0], 1, 100, 151)))
-batch_size = 1 # This is the upper order batch size. The real batch size when used for training will be the 2 + 2*k_neg 
+batch_size = 128 # This is the upper order batch size. The real batch size when used for training will be the 2 + 2*k_neg 
 total_dataloader = DataLoader(total_dataset, batch_size=batch_size , shuffle=False)
 
 import torch
@@ -414,7 +411,7 @@ total_indices = np.arange(embed.shape[0])
 easy_negatives = np.setdiff1d(total_indices, hard_indices)
 easy_negatives = torch.tensor(easy_negatives)
 shuffle_status = True
-batch_size = 1
+batch_size = 128
 k_neg = 2
 
 training_dataset = Curating_Dataset(k_neg, train_hard_dataset, easy_negatives, dataset)
@@ -473,30 +470,48 @@ batch, negative_indices = next(iter(train_loader))
         
 #         return anchor_augmented, neg_augmented
         
-def add_white_noise(tensor, num_augmentations, noise_level=0.5):
+def add_white_noise(batch, num_augmentations, noise_level=0.5):
+    
+    '''
+    The main features of this function should be that the augmentations are interleaved. 
+    That is [batch_size, num_augmented_samples, 1, 100, 151]
+    Where [0,0,1,100,151] is the first augmentation of the anchor sample. 
+    Where [0,3,1,100,151] is the second augmented of the anchor sample 
+    Where [0,1,1,100,151] is the first augmentation of the second sample in batch 0
+    '''
     """
-    Adds white noise to a tensor and creates a new tensor with augmented data along the first dimension.
+    Add white noise augmentations to a batch and interleave augmentations across samples.
     
     Parameters:
-    - tensor: input tensor.
-    - num_augmentations: number of noisy augmentations to create.
-    - noise_level: scale of the noise relative to the input values (default: 0.5).
+    - batch: input tensor of shape [batch_size, num_samples, 1, 100, 151].
+    - num_augmentations: total number of augmentations to create for each sample, excluding the original.
+    - noise_level: standard deviation of the Gaussian noise to add.
     
     Returns:
-    - A new tensor with added white noise where the first dimension is the number of augmentations.
+    - A tensor where each sample's augmentation is interleaved, 
+      with shape [batch_size, num_samples * num_augmentations, 1, 100, 151].
     """
+    batch_size, num_samples, channels, height, width = batch.shape
     
-    tensor_copy_list = []
+    # Generate noise for all augmentations across all samples
+    # Shape: [batch_size, num_samples, num_augmentations, channels, height, width]
+    noise = torch.randn(batch_size, num_samples, num_augmentations, channels, height, width) * noise_level
+    noise = noise.to(batch.device)  # Ensure noise is on the same device as the batch
+
+    # Apply noise to create augmentations
+    # We expand the original batch to match the noise shape for addition
+    original_expanded = batch.unsqueeze(2).expand(-1, -1, num_augmentations, -1, -1, -1)
+    augmented_batch = original_expanded + noise
     
-    for _ in range(num_augmentations):
-        noise = torch.randn_like(tensor) * noise_level
-        tensor_copy = tensor + noise
-        tensor_copy_list.append(tensor_copy.unsqueeze(0))
+    # Reshape to move the augmentations dimension to the end for easier permutation
+    # And then flatten the last three dimensions into one
+    batch_noisy = augmented_batch.permute(0, 2, 1, 3, 4, 5).reshape(batch_size, num_augmentations * num_samples, channels, height, width)
         
-    augmented_tensor = torch.cat(tensor_copy_list, dim=0)
-        
-    return augmented_tensor
-   
+    return batch_noisy
+
+# Ultimately, I want my batch to have the following dimension
+# [batch_size, num_samples*num_augmentations, 1, 100, 151]    
+
 model = Encoder()
 # Check if multiple GPUs are available
 if torch.cuda.device_count() > 1:
@@ -509,57 +524,84 @@ model.to(device).to(torch.float32)
 
 
 def infonce_loss_function(feats, temperature=1.0, num_augmentations=2):
-    # Calculate cosine similarity
-    cos_sim = F.cosine_similarity(feats[:, None, :], feats[None, :, :], dim=-1)
+    batch_size = feats.shape[0]
     
-    # Mask out cosine similarity to itself
-    self_mask = torch.eye(cos_sim.shape[0], dtype=torch.bool, device=cos_sim.device)
-    cos_sim.masked_fill_(self_mask, -9e15)
-    # Find positive example -> batch_size//2 away from the original example
-    pos_mask = self_mask.roll(shifts=cos_sim.shape[0]//2, dims=0)
+    # Normalize the feature vectors (good practice for cosine similarity)
+    feats_norm = F.normalize(feats, p=2, dim=2)
+    
+    
+    # Reshape feats_norm for batch matrix multiplication: [128, 1, 6, 256] x [128, 256, 6, 1]
+    # This treats each group of 6 samples as a separate 'batch' for the purpose of multiplication
+    feats_reshaped = feats_norm.unsqueeze(1)  # Shape becomes [128, 1, 6, 256]
+    transposed_feats = feats_norm.unsqueeze(-1)  # Shape becomes [128, 6, 256, 1]
+    
+    # Perform batch matrix multiplication
+    # torch.matmul can handle broadcasting, so [128, 1, 6, 256] @ [128, 6, 256, 1] results in [128, 6, 6]
+    cos_sim_matrices = torch.matmul(feats_reshaped, transposed_feats).squeeze()  # Squeeze to remove dimensions of size 1
+    
+    nll_grand_mean = 0
+    pos_grand_mean = 0
+    neg_grand_mean = 0
+    for i in np.arange(batch_size):
+        cos_sim = cos_sim_matrices[i,:,:]
+        
+        # Mask out cosine similarity to itself
+        self_mask = torch.eye(cos_sim.shape[0], dtype=torch.bool, device=cos_sim.device)
+        cos_sim.masked_fill_(self_mask, -9e15)
+        # Find positive example -> batch_size//2 away from the original example
+        pos_mask = self_mask.roll(shifts=cos_sim.shape[0]//2, dims=0)
 
+        # For monitoring: Compute mean positive and negative similarities
+        pos_sim = cos_sim[pos_mask].mean()
+        neg_sim = cos_sim[~pos_mask & ~self_mask].mean()
+        
+        # InfoNCE loss computation
+        cos_sim = cos_sim / temperature
+        nll = -cos_sim[pos_mask] + torch.logsumexp(cos_sim, dim=-1)
+        nll = nll.mean()
+        
+        
+        nll_grand_mean+=nll
+        pos_grand_mean+=pos_sim
+        neg_grand_mean+=neg_sim
+        
     
-    # For monitoring: Compute mean positive and negative similarities
-    pos_sim = cos_sim[pos_mask].mean()
-    neg_sim = cos_sim[~pos_mask & ~self_mask].mean()
+    nll_grand_mean/=batch_size
+    pos_grand_mean/=batch_size
+    neg_grand_mean/=batch_size
     
-    # InfoNCE loss computation
-    cos_sim = cos_sim / temperature
-    nll = -cos_sim[pos_mask] + torch.logsumexp(cos_sim, dim=-1)
-    nll = nll.mean()
-    
-    return nll, pos_sim, neg_sim
+    return nll_grand_mean, pos_sim, neg_sim
 
 # =============================================================================
 # UNTRAINED MODEL REPRESENTATION
 # =============================================================================
 
-model_rep_untrained = []
-train_loader = torch.utils.data.DataLoader(train_hard_dataset, batch_size = batch_size, shuffle = False)
+# model_rep_untrained = []
+# train_loader = torch.utils.data.DataLoader(train_hard_dataset, batch_size = batch_size, shuffle = False)
 
-model = model.to('cpu')
-model.eval()
-with torch.no_grad():
-    for batch_idx, (img, idx) in enumerate(train_loader):
-        data = img.to(torch.float32)
+# model = model.to('cpu')
+# model.eval()
+# with torch.no_grad():
+#     for batch_idx, (img, idx) in enumerate(train_loader):
+#         data = img.to(torch.float32)
         
-        output = model.module.forward_once(data)
-        model_rep_untrained.append(output.numpy())
+#         output = model.module.forward_once(data)
+#         model_rep_untrained.append(output.numpy())
 
-model_rep_stacked = np.concatenate((model_rep_untrained))
+# model_rep_stacked = np.concatenate((model_rep_untrained))
 
-import umap
-reducer = umap.UMAP(metric = 'cosine', random_state=295) # For consistency
-embed_train = reducer.fit_transform(model_rep_stacked)
+# import umap
+# reducer = umap.UMAP(metric = 'cosine', random_state=295) # For consistency
+# embed_train = reducer.fit_transform(model_rep_stacked)
 
-plt.figure()
-plt.scatter(embed_train[:,0], embed_train[:,1], c = simple_tweetyclr.mean_colors_per_minispec[hard_indices[train_indices],:])
-plt.xlabel("UMAP 1")
-plt.ylabel("UMAP 2")
-plt.suptitle(f'UMAP Representation of Training Hard Region')
-plt.title(f'Total Slices: {embed_train.shape[0]}')
-plt.show()
-plt.savefig(f'{folder_name}/UMAP_rep_of_model_train_region_untrained_model.png')
+# plt.figure()
+# plt.scatter(embed_train[:,0], embed_train[:,1], c = simple_tweetyclr.mean_colors_per_minispec[hard_indices[train_indices],:])
+# plt.xlabel("UMAP 1")
+# plt.ylabel("UMAP 2")
+# plt.suptitle(f'UMAP Representation of Training Hard Region')
+# plt.title(f'Total Slices: {embed_train.shape[0]}')
+# plt.show()
+# plt.savefig(f'{folder_name}/UMAP_rep_of_model_train_region_untrained_model.png')
 
 temperature = 0.02
 num_augmentations = 2
@@ -592,9 +634,6 @@ for epoch in range(num_epochs):
 
     for batch_idx, (batch, negative_indices) in enumerate(train_loader):
         
-        if batch_idx>subset_val:
-            break
-        
         batch_train_loss = 0
         pos_sim_train_value = 0
         neg_sim_train_value = 0
@@ -604,12 +643,19 @@ for epoch in range(num_epochs):
         # Move batch to device once and ensure it's float32
         batch = batch.to(device).to(torch.float32)
         
-        batch = batch.squeeze(0)
         augmented_tensor = add_white_noise(batch, num_augmentations, noise_level = 0.05) 
-        batch_dat = augmented_tensor.view(augmented_tensor.shape[0]*augmented_tensor.shape[1], 1, 100, 151)
-            
-        feats = model(batch_dat)  # Direct model invocation
         
+        # I need to flattened the augmented_tensor in order to pass it through my model
+        augmented_tensor = augmented_tensor.view(-1, 1, 100, 151)  # New shape: [768, 1, 100, 151]
+            
+        feats = model(augmented_tensor)  # Direct model invocation
+        
+        total_samples = feats.shape[0]
+        group_size = num_augmentations * (k_neg + 1)  # The size of each group
+
+        dynamic_batch_size = total_samples // group_size
+        
+        feats = feats.view(dynamic_batch_size, num_augmentations*(k_neg+1), 256)
         loss, pos_sim, neg_sim = infonce_loss_function(feats, temperature)
         
         pos_sim_train_value+=pos_sim.item()
@@ -661,29 +707,41 @@ for epoch in range(num_epochs):
     validation_loss = 0
     with torch.no_grad():
         for batch_idx, (batch, negative_indices) in enumerate(test_loader):
-            if batch_idx > subset_val:
-                break
             
             batch_val_loss = 0
             pos_sim_val_value = 0
             neg_sim_val_value = 0
             
-            batch = batch.squeeze(0).to(device).to(torch.float32)
-            augmented_tensor = add_white_noise(batch, num_augmentations, noise_level = 0.05) 
-            batch_dat = augmented_tensor.view(augmented_tensor.shape[0]*augmented_tensor.shape[1], 1, 100, 151)
 
-            feats = model(batch_dat)
+            # Move batch to device once and ensure it's float32
+            batch = batch.to(device).to(torch.float32)
+            
+            augmented_tensor = add_white_noise(batch, num_augmentations, noise_level = 0.05) 
+            
+            # I need to flattened the augmented_tensor in order to pass it through my model
+            augmented_tensor = augmented_tensor.view(-1, 1, 100, 151)  # New shape: [768, 1, 100, 151]
+                
+            feats = model(augmented_tensor)  # Direct model invocation
+            
+            total_samples = feats.shape[0]
+            group_size = num_augmentations * (k_neg + 1)  # The size of each group
+    
+            dynamic_batch_size = total_samples // group_size
+            
+            feats = feats.view(dynamic_batch_size, num_augmentations*(k_neg+1), 256)
             loss, pos_sim, neg_sim = infonce_loss_function(feats, temperature)
             
             pos_sim_val_value+=pos_sim.item()
             neg_sim_val_value+=neg_sim.item()
             batch_val_loss+=loss.item()
-
+                
+                
             validation_batch_loss.append(batch_val_loss)
             pos_sim_val_batch.append(pos_sim_val_value)
             neg_sim_val_batch.append(neg_sim_val_value)
             
             validation_loss += loss.item()
+
             
         if epoch%5 == 0:
             model_rep_test = []
