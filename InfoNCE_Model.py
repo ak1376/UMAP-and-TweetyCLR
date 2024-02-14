@@ -14,9 +14,9 @@ import sys
 filepath = '/home/akapoor'
 # filepath = '/Users/AnanyaKapoor'
 import os
-# os.chdir('/Users/AnanyaKapoor/Downloads/TweetyCLR')
-os.chdir(f'{filepath}/Dropbox (University of Oregon)/Kapoor_Ananya/01_Projects/01_b_Canary_SSL/TweetyCLR_End_to_End')
-from util import Tweetyclr
+os.chdir(f'{filepath}/Dropbox (University of Oregon)/Kapoor_Ananya/01_Projects/01_b_Canary_SSL/UMAP_and_TweetyCLR')
+from util.utils_Dataset_Creation import *
+from util.utils_functional import *
 import torch.nn as nn
 import torch.nn.functional as F
 import os
@@ -25,13 +25,11 @@ from torch.utils.data import DataLoader, TensorDataset
 import umap
 import matplotlib.pyplot as plt
 import torch.optim as optim
-import itertools
 import inspect
 import torch.nn.init as init
 import random
 from torch.utils.data import Dataset
-from collections import defaultdict
-import time
+from torch.utils.data import random_split
 
 
 # Set random seeds for reproducibility 
@@ -62,7 +60,7 @@ stride = 10
 # experiment. The user should also provide a brief text description of what the
 # experiment is testing (like a Readme file)
 
-log_experiment = True
+log_experiment = False
 if log_experiment == True:
     user_input = input("Please enter the experiment name: ")
     folder_name = f'{analysis_path}Num_Spectrograms_{num_spec}_Window_Size_{window_size}_Stride_{stride}/{user_input}'
@@ -86,6 +84,7 @@ spec_dim_tuple = (window_size, 151)
 with open(f'{filepath}/Dropbox (University of Oregon)/Kapoor_Ananya/01_Projects/01_b_Canary_SSL/TweetyCLR_End_to_End/Supervised_Task/category_colors.pkl', 'rb') as file:
     category_colors = pickle.load(file)
 
+
 # In[1]: Creating Dataset
 
 # Object that has a bunch of helper functions and does a bunch of useful things 
@@ -105,32 +104,110 @@ if log_experiment == True:
 
 
 stacked_windows = simple_tweetyclr.stacked_windows.copy()
-# mean = np.mean(stacked_windows, axis=1, keepdims=True)
-# std_dev = np.std(stacked_windows, axis=1, keepdims=True)
-
-# # # Perform z-scoring
-# z_scored = (stacked_windows - mean) / std_dev
-
-# # # Replace NaNs with 0s
-# z_scored = np.nan_to_num(z_scored)
-
-# stacked_windows = z_scored.copy()
 
 stacked_windows.shape = (stacked_windows.shape[0], 100, 151)
 
 stacked_windows[:, :, :] = simple_tweetyclr.stacked_labels_for_window[:, :, None]
 
-stacked_windows.shape = (stacked_windows.shape[0], 100*151) 
+stacked_windows.shape = (stacked_windows.shape[0],1, 100, 151) 
 
-# Set up a base dataloader (which we won't directly use for modeling). Also define the batch size of interest
-total_dataset = TensorDataset(torch.tensor(simple_tweetyclr.stacked_windows.reshape(simple_tweetyclr.stacked_windows.shape[0], 1, 100, 151)))
-batch_size = 128 # This is the upper order batch size. The real batch size when used for training will be the 2 + 2*k_neg 
-total_dataloader = DataLoader(total_dataset, batch_size=batch_size , shuffle=False)
 
-import torch
-import torch.nn as nn
-import torch.optim as optim
-# from torch.optim.lr_scheduler import StepLR, ReduceLROnPlateau
+total_dataset, total_dataloader = create_dataloader(stacked_windows, 64, np.arange(stacked_windows.shape[0]))
+
+
+# Need to compute the UMAP embedding
+reducer = umap.UMAP(metric = 'cosine', random_state=295)
+
+# embed = reducer.fit_transform(simple_tweetyclr.stacked_windows)
+embed = np.load(f'{analysis_path}Num_Spectrograms_{num_spec}_Window_Size_{window_size}_Stride_{stride}/embed.npy')
+# Preload the embedding 
+simple_tweetyclr.umap_embed_init = embed
+
+plt.figure()
+plt.scatter(embed[:,0], embed[:,1], s = 10, c = simple_tweetyclr.mean_colors_per_minispec)
+plt.xlabel("UMAP 1")
+plt.ylabel("UMAP 2")
+plt.title(f'Total Slices: {embed.shape[0]}')
+plt.savefig(f'{simple_tweetyclr.folder_name}/Plots/UMAP_of_all_slices.png')
+plt.show()
+
+# np.save(f'{analysis_path}Num_Spectrograms_{num_spec}_Window_Size_{window_size}_Stride_{stride}/embed.npy', embed)
+
+# DEFINE HARD INDICES THROUGH INTERACTION: USER NEEDS TO ZOOM IN ON ROI 
+
+# If we are including multiple hard regions then I should put them in a 
+# dictionary and then select hard and easy negative samples according to which
+# key we are in in in the dictionary
+
+hard_indices_dict, list_of_hard_indices = simple_tweetyclr.selecting_confused_region(embed)
+
+
+data_for_analysis = simple_tweetyclr.stacked_windows.copy()
+data_for_analysis = data_for_analysis.reshape(data_for_analysis.shape[0], 1, 100, 151)
+
+# list_of_images = []
+# for batch_idx, (data) in enumerate(total_dataloader):
+#     data = data[0]
+    
+#     for image in data:
+#         list_of_images.append(image)
+        
+# list_of_images = [tensor.numpy() for tensor in list_of_images]
+
+# embeddable_images = get_images(list_of_images)
+
+# plot_UMAP_embedding(embed, simple_tweetyclr.mean_colors_per_minispec,embeddable_images, f'{simple_tweetyclr.folder_name}/Plots/UMAP_of_all_slices.html', saveflag = True)
+
+hard_indices = hard_indices_dict[0]
+hard_dataset = data_for_analysis[hard_indices,:].reshape(len(hard_indices), 1, 100, 151) # Dataset of all the confused spectrogram slices that we want to untangle
+
+hard_dataset, hard_dataloader = create_dataloader(hard_dataset, 64, hard_indices, shuffle_status=False)
+
+# Need to create a train dataset and test dataset on the hard indices. 
+
+# Split the dataset into a training and testing dataset
+# Define the split sizes -- what is the train test split ? 
+
+train_perc = 0.5 #
+train_size = int(train_perc * len(hard_dataset))  # (100*train_perc)% for training
+test_size = len(hard_dataset) - train_size  # 100 - (100*train_perc)% for testing
+
+# ORGANIZE BELOW INTO A DATASET AND DATALOADER CREATION HELPER FUNCTION
+
+from torch.utils.data import random_split
+
+train_hard_dataset, test_hard_dataset = random_split(hard_dataset, [train_size, test_size]) 
+
+# Getting the indices
+train_indices = np.array(train_hard_dataset.indices)
+test_indices = np.array(test_hard_dataset.indices)
+embed_train = embed[hard_indices[train_indices],:]
+embed_test = embed[hard_indices[test_indices], :]
+
+# Let's define the set of easy and hard negatives
+
+
+shuffle_status = True
+batch_size = 64
+k_neg = 2
+
+
+easy_negatives, hard_negatives = creating_negatives_set(embed, hard_indices)
+
+
+training_dataset = Curating_Dataset(k_neg, train_hard_dataset, easy_negatives, total_dataset)
+testing_dataset = Curating_Dataset(k_neg, test_hard_dataset, easy_negatives, total_dataset)
+
+train_loader = torch.utils.data.DataLoader(training_dataset, batch_size = batch_size, shuffle = shuffle_status)
+test_loader = torch.utils.data.DataLoader(testing_dataset, batch_size = batch_size, shuffle = shuffle_status)
+
+batch, negative_indices = next(iter(train_loader))
+
+# Dimensions of the output: 
+    # anchor_img: [batch_size, 1, 1, 100, 151]
+    # negative_img: [batch_size, k_neg, 1, 100, 151]
+    # negative_indices: [batch_size, k_neg]
+
 
 class Encoder(nn.Module):
     def __init__(self):
@@ -221,296 +298,6 @@ class Encoder(nn.Module):
         features = self.relu(self.fc(self.forward_once(x)))
         
         return features
-        
-        
-        
-
-
-# Need to compute the UMAP embedding
-reducer = umap.UMAP(metric = 'cosine', random_state=295)
-
-# embed = reducer.fit_transform(simple_tweetyclr.stacked_windows)
-embed = np.load(f'{analysis_path}Num_Spectrograms_{num_spec}_Window_Size_{window_size}_Stride_{stride}/embed.npy')
-# Preload the embedding 
-simple_tweetyclr.umap_embed_init = embed
-
-plt.figure()
-plt.scatter(embed[:,0], embed[:,1], s = 10, c = simple_tweetyclr.mean_colors_per_minispec)
-plt.xlabel("UMAP 1")
-plt.ylabel("UMAP 2")
-plt.title(f'Total Slices: {embed.shape[0]}')
-plt.savefig(f'{simple_tweetyclr.folder_name}/Plots/UMAP_of_all_slices.png')
-plt.show()
-
-# np.save(f'{analysis_path}Num_Spectrograms_{num_spec}_Window_Size_{window_size}_Stride_{stride}/embed.npy', embed)
-
-# DEFINE HARD INDICES THROUGH INTERACTION: USER NEEDS TO ZOOM IN ON ROI 
-
-# If we are including multiple hard regions then I should put them in a 
-# dictionary and then select hard and easy negative samples according to which
-# key we are in in in the dictionary
-
-hard_indices_dict = {}
-hard_region_coordinates = {}
-
-# Get current axes
-ax = plt.gca()
-# Get current limits
-xlim = ax.get_xlim()
-ylim = ax.get_ylim()
-
-hard_indices = np.where((embed[:,0]>=xlim[0])&(embed[:,0]<=xlim[1]) & (embed[:,1]>=ylim[0]) & (embed[:,1]<=ylim[1]))[0]
-
-
-hard_indices_dict[0] = hard_indices
-hard_region_coordinates[0] = [xlim, ylim]
-
-# Now let's zoom out on the matplotlib plot
-
-# Zoom out by changing the limits
-# You can adjust these values as needed to zoom out to the desired level
-ax.set_xlim([min(embed[:,0]) - 1, max(embed[:,0]) + 1])  # Zoom out on x-axis
-ax.set_ylim([min(embed[:,1]) - 1, max(embed[:, 1]) + 1])  # Zoom out on y-axis
-
-# Show the updated plot
-plt.show()
-
-
-for i in np.arange(len(hard_indices_dict)):
-    hard_ind = hard_indices_dict[i]
-
-    plt.figure(figsize = (10,10))
-    plt.scatter(embed[hard_ind,0], embed[hard_ind,1], s = 10, c = simple_tweetyclr.mean_colors_per_minispec[hard_ind,:])
-    plt.xlabel("UMAP 1")
-    plt.ylabel("UMAP 2")
-    # plt.title("UMAP Decomposition of ")
-    plt.suptitle(f'UMAP Representation of Hard Region #{i}')
-    plt.title(f'Total Slices: {embed[hard_ind,:].shape[0]}')
-    plt.savefig(f'{simple_tweetyclr.folder_name}/Plots/UMAP_of_hard_slices_region_{i}.png')
-    plt.show()
-
-
-data_for_analysis = simple_tweetyclr.stacked_windows.copy()
-data_for_analysis = data_for_analysis.reshape(data_for_analysis.shape[0], 1, 100, 151)
-total_dataset = TensorDataset(torch.tensor(data_for_analysis.reshape(data_for_analysis.shape[0], 1, simple_tweetyclr.time_dim, simple_tweetyclr.freq_dim)))
-total_dataloader = DataLoader(total_dataset, batch_size=batch_size , shuffle=False)
-
-# list_of_images = []
-# for batch_idx, (data) in enumerate(total_dataloader):
-#     data = data[0]
-    
-#     for image in data:
-#         list_of_images.append(image)
-        
-# list_of_images = [tensor.numpy() for tensor in list_of_images]
-
-# embeddable_images = simple_tweetyclr.get_images(list_of_images)
-
-# simple_tweetyclr.plot_UMAP_embedding(embed, simple_tweetyclr.mean_colors_per_minispec,embeddable_images, f'{simple_tweetyclr.folder_name}/Plots/UMAP_of_all_slices.html', saveflag = True)
-
-hard_dataset = data_for_analysis[hard_indices,:].reshape(len(hard_indices), 1, 100, 151) # Dataset of all the confused spectrogram slices that we want to untangle
-
-dataset = TensorDataset(torch.tensor(data_for_analysis), torch.tensor(np.arange(data_for_analysis.shape[0]))) # The full dataset of all slices
-hard_dataset = TensorDataset(torch.tensor(hard_dataset), torch.tensor(hard_indices)) # The dataset of just the hard indices
-
-
-# In[2]: I will first do white noise augmentation the simple dumb way (not worry about speed). But if it hampers speed I will fix it.
-
-# Need to create a train dataset and test dataset on the hard indices. 
-
-# Split the dataset into a training and testing dataset
-# Define the split sizes -- what is the train test split ? 
-train_perc = 0.5 #
-train_size = int(train_perc * len(hard_dataset))  # (100*train_perc)% for training
-test_size = len(hard_dataset) - train_size  # 100 - (100*train_perc)% for testing
-
-from torch.utils.data import random_split
-
-train_hard_dataset, test_hard_dataset = random_split(hard_dataset, [train_size, test_size]) 
-
-# Getting the indices
-train_indices = np.array(train_hard_dataset.indices)
-test_indices = np.array(test_hard_dataset.indices)
-embed_train = embed[hard_indices[train_indices],:]
-embed_test = embed[hard_indices[test_indices], :]
-
-
-# Problem: I want a dataloader to have each batch to be of shape [(k_neg + 1), 1, 100, 151]
-
-
-
-
-
-
-class Curating_Dataset(Dataset):
-    def __init__(self, k_neg, hard_dataset, easy_negatives, dataset):
-        '''
-
-        Parameters
-        ----------
-        k_neg : int
-            Number of negative samples for each anchor sample.
-            
-        easy_negatives: torch tensor
-            The set of indices for easy negatives. Note: this is {ALL INDICES}\{HARD INDICES}
-
-        Returns
-        -------
-        None.
-
-        '''
-        
-        self.k_neg = k_neg
-        self.hard_dataset = hard_dataset
-        self.easy_negatives = easy_negatives
-        self.dataset = dataset
-        
-        self.all_features, self.all_indices = zip(*[self.dataset[i] for i in range(len(self.dataset))]) # I will use this to extract the images using the subsequent negative indices
-        self.hard_features, self.hard_indices = zip(*[self.hard_dataset[i] for i in range(len(self.hard_dataset))]) # This will be used to create all the hard features
-
-        # Converting lists of tensors to a single tensor
-        self.all_features, self.all_indices = torch.stack(self.all_features), torch.stack(self.all_indices)
-        self.hard_features, self.hard_indices = torch.stack(self.hard_features), torch.stack(self.hard_indices)
-        
-        
-    def __len__(self):
-        return self.hard_indices.shape[0]
-        
-    def __getitem__(self, index):
-        '''
-        For each hard index I want to randomly select k_neg negative samples.
-
-        Parameters
-        ----------
-        index : int
-            Batch index.
-
-        Returns
-        -------
-        None.
-
-        '''
-
-        actual_index = int(self.all_indices[int(self.hard_indices[index])])
-        anchor_img = self.all_features[actual_index,:, :, :].unsqueeze(1)
-
-        random_indices = torch.randint(0, self.easy_negatives.size(0), (self.k_neg,))
-        
-        negative_indices = self.easy_negatives[random_indices]
-        
-        negative_imgs = self.all_features[negative_indices, :, :, :]
-        
-        x = torch.cat((anchor_img, negative_imgs), dim = 0)
-        
-        return x, negative_indices
-
-# Let's define the set of easy negatives
-
-total_indices = np.arange(embed.shape[0])
-
-easy_negatives = np.setdiff1d(total_indices, hard_indices)
-easy_negatives = torch.tensor(easy_negatives)
-shuffle_status = True
-batch_size = 128
-k_neg = 2
-
-training_dataset = Curating_Dataset(k_neg, train_hard_dataset, easy_negatives, dataset)
-testing_dataset = Curating_Dataset(k_neg, test_hard_dataset, easy_negatives, dataset)
-
-
-train_loader = torch.utils.data.DataLoader(training_dataset, batch_size = batch_size, shuffle = shuffle_status)
-test_loader = torch.utils.data.DataLoader(testing_dataset, batch_size = batch_size, shuffle = shuffle_status)
-
-batch, negative_indices = next(iter(train_loader))
-
-# Dimensions of the output: 
-    # anchor_img: [batch_size, 1, 1, 100, 151]
-    # negative_img: [batch_size, k_neg, 1, 100, 151]
-    # negative_indices: [batch_size, k_neg]
-
-# In[3]: I want to create an object that will do white noise augmentation 
-
-# class White_Noise():
-#     def __init__(self, num_augmentations, noise_level = 1.0):
-#         self.num_augmentations = num_augmentations
-#         self.noise_level = noise_level
-        
-#     def augment_with_white_noise_k_times(self, images):
-#         """
-#         Apply k white noise augmentations to 5D PyTorch tensors.
-    
-#         Parameters:
-#         - images: 5D PyTorch tensor of shape [batch_size, k_samples, 1, width, height]
-#         - k: int, the number of white noise augmentations to apply
-#         - noise_scale: float, the scale of the noise, relative to the data range
-    
-#         Returns:
-#         - Augmented images: 6D PyTorch tensor of shape [k, batch_size, k_samples, 1, width, height]
-#         """
-#         # Generate noise for all augmentations in one go
-#         # The noise shape needs to match images shape, except we add k as the first dimension
-#         k = self.num_augmentations
-#         noise_shape = (k,) + images.shape
-#         noise = torch.rand(noise_shape) * self.noise_level
-        
-#         # Expand the original images tensor to match the noise tensor shape for broadcasting
-#         images_expanded = images.unsqueeze(0).expand(noise_shape)
-        
-#         # Add the noise to the expanded images tensor and clip values to be between 0 and 1
-#         noisy_images = torch.clamp(images_expanded + noise, 0, 1)
-        
-#         return noisy_images
-    
-    
-    
-#     def __call__(self, anchor_img, negative_imgs): 
-#         # Corrected method calls without passing 'self' explicitly
-#         anchor_augmented = self.augment_with_white_noise_k_times(anchor_img)
-#         neg_augmented = self.augment_with_white_noise_k_times(negative_imgs)
-        
-#         return anchor_augmented, neg_augmented
-        
-def add_white_noise(batch, num_augmentations, noise_level=0.5):
-    
-    '''
-    The main features of this function should be that the augmentations are interleaved. 
-    That is [batch_size, num_augmented_samples, 1, 100, 151]
-    Where [0,0,1,100,151] is the first augmentation of the anchor sample. 
-    Where [0,3,1,100,151] is the second augmented of the anchor sample 
-    Where [0,1,1,100,151] is the first augmentation of the second sample in batch 0
-    '''
-    """
-    Add white noise augmentations to a batch and interleave augmentations across samples.
-    
-    Parameters:
-    - batch: input tensor of shape [batch_size, num_samples, 1, 100, 151].
-    - num_augmentations: total number of augmentations to create for each sample, excluding the original.
-    - noise_level: standard deviation of the Gaussian noise to add.
-    
-    Returns:
-    - A tensor where each sample's augmentation is interleaved, 
-      with shape [batch_size, num_samples * num_augmentations, 1, 100, 151].
-    """
-    batch_size, num_samples, channels, height, width = batch.shape
-    
-    # Generate noise for all augmentations across all samples
-    # Shape: [batch_size, num_samples, num_augmentations, channels, height, width]
-    noise = torch.randn(batch_size, num_samples, num_augmentations, channels, height, width) * noise_level
-    noise = noise.to(batch.device)  # Ensure noise is on the same device as the batch
-
-    # Apply noise to create augmentations
-    # We expand the original batch to match the noise shape for addition
-    original_expanded = batch.unsqueeze(2).expand(-1, -1, num_augmentations, -1, -1, -1)
-    augmented_batch = original_expanded + noise
-    
-    # Reshape to move the augmentations dimension to the end for easier permutation
-    # And then flatten the last three dimensions into one
-    batch_noisy = augmented_batch.permute(0, 2, 1, 3, 4, 5).reshape(batch_size, num_augmentations * num_samples, channels, height, width)
-        
-    return batch_noisy
-
-# Ultimately, I want my batch to have the following dimension
-# [batch_size, num_samples*num_augmentations, 1, 100, 151]    
 
 model = Encoder()
 # Check if multiple GPUs are available
@@ -522,86 +309,16 @@ if torch.cuda.device_count() > 1:
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model.to(device).to(torch.float32)
 
-
-def infonce_loss_function(feats, temperature=1.0, num_augmentations=2):
-    batch_size = feats.shape[0]
-    
-    # Normalize the feature vectors (good practice for cosine similarity)
-    feats_norm = F.normalize(feats, p=2, dim=2)
-    
-    
-    # Reshape feats_norm for batch matrix multiplication: [128, 1, 6, 256] x [128, 256, 6, 1]
-    # This treats each group of 6 samples as a separate 'batch' for the purpose of multiplication
-    feats_reshaped = feats_norm.unsqueeze(1)  # Shape becomes [128, 1, 6, 256]
-    transposed_feats = feats_norm.unsqueeze(-1)  # Shape becomes [128, 6, 256, 1]
-    
-    # Perform batch matrix multiplication
-    # torch.matmul can handle broadcasting, so [128, 1, 6, 256] @ [128, 6, 256, 1] results in [128, 6, 6]
-    cos_sim_matrices = torch.matmul(feats_reshaped, transposed_feats).squeeze()  # Squeeze to remove dimensions of size 1
-    
-    nll_grand_mean = 0
-    pos_grand_mean = 0
-    neg_grand_mean = 0
-    for i in np.arange(batch_size):
-        cos_sim = cos_sim_matrices[i,:,:]
-        
-        # Mask out cosine similarity to itself
-        self_mask = torch.eye(cos_sim.shape[0], dtype=torch.bool, device=cos_sim.device)
-        cos_sim.masked_fill_(self_mask, -9e15)
-        # Find positive example -> batch_size//2 away from the original example
-        pos_mask = self_mask.roll(shifts=cos_sim.shape[0]//2, dims=0)
-
-        # For monitoring: Compute mean positive and negative similarities
-        pos_sim = cos_sim[pos_mask].mean()
-        neg_sim = cos_sim[~pos_mask & ~self_mask].mean()
-        
-        # InfoNCE loss computation
-        cos_sim = cos_sim / temperature
-        nll = -cos_sim[pos_mask] + torch.logsumexp(cos_sim, dim=-1)
-        nll = nll.mean()
-        
-        
-        nll_grand_mean+=nll
-        pos_grand_mean+=pos_sim
-        neg_grand_mean+=neg_sim
-        
-    
-    nll_grand_mean/=batch_size
-    pos_grand_mean/=batch_size
-    neg_grand_mean/=batch_size
-    
-    return nll_grand_mean, pos_sim, neg_sim
-
 # =============================================================================
 # UNTRAINED MODEL REPRESENTATION
 # =============================================================================
 
-model_rep_untrained = []
-train_loader = torch.utils.data.DataLoader(train_hard_dataset, batch_size = batch_size, shuffle = False)
+train_hard_loader = torch.utils.data.DataLoader(train_hard_dataset, batch_size = batch_size, shuffle = False)
+model_rep_untrained = create_UMAP_plot(train_hard_loader, simple_tweetyclr, hard_indices[train_indices], model, 'UMAP_rep_of_model_train_region_untrained_model', saveflag = True)
 
-model = model.to('cpu')
-model.eval()
-with torch.no_grad():
-    for batch_idx, (img, idx) in enumerate(train_loader):
-        data = img.to(torch.float32)
-        
-        output = model.module.forward_once(data)
-        model_rep_untrained.append(output.numpy())
-
-model_rep_stacked = np.concatenate((model_rep_untrained))
-
-import umap
-reducer = umap.UMAP(metric = 'cosine', random_state=295) # For consistency
-embed_train = reducer.fit_transform(model_rep_stacked)
-
-plt.figure()
-plt.scatter(embed_train[:,0], embed_train[:,1], c = simple_tweetyclr.mean_colors_per_minispec[hard_indices[train_indices],:])
-plt.xlabel("UMAP 1")
-plt.ylabel("UMAP 2")
-plt.suptitle(f'UMAP Representation of Training Hard Region')
-plt.title(f'Total Slices: {embed_train.shape[0]}')
-plt.show()
-plt.savefig(f'{folder_name}/UMAP_rep_of_model_train_region_untrained_model.png')
+# =============================================================================
+# MODEL BUILDING
+# =============================================================================
 
 temperature = 0.02
 num_augmentations = 2
@@ -626,25 +343,7 @@ num_augmentations = 2  # Define number of augmentations
 train_loader = torch.utils.data.DataLoader(training_dataset, batch_size = batch_size, shuffle = shuffle_status)
 test_loader = torch.utils.data.DataLoader(testing_dataset, batch_size = batch_size, shuffle = shuffle_status)
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+# TODO: Need to clean up this code.
 
 for epoch in range(num_epochs):
     model.train()
@@ -1028,7 +727,7 @@ experiment_params = {
     "Temperature": temperature,
     "Num_Epochs": num_epochs, 
     "Torch_Random_Seed": 295, 
-    "Num_random_batches_for_epoch_calc": subset_val,
+    # "Num_random_batches_for_epoch_calc": subset_val,
     "Accumulation_Size": train_perc, 
     "Train_Proportion": train_perc,
     "Model_Architecture": model_arch_lines, 

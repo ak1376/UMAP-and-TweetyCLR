@@ -144,16 +144,16 @@ class Encoder(nn.Module):
         self.conv9 = nn.Conv2d(24,24,3,1,padding=1)
         self.conv10 = nn.Conv2d(24,16,3,2,padding=1)
 
-        self.bn1 = nn.BatchNorm2d(8)
-        self.bn2 = nn.BatchNorm2d(8)
-        self.bn3 = nn.BatchNorm2d(16)
-        self.bn4 = nn.BatchNorm2d(16)
-        self.bn5 = nn.BatchNorm2d(24)
-        self.bn6 = nn.BatchNorm2d(24)
-        self.bn7 = nn.BatchNorm2d(32)
-        self.bn8 = nn.BatchNorm2d(24)
-        self.bn9 = nn.BatchNorm2d(24)
-        self.bn10 = nn.BatchNorm2d(16)
+        # self.bn1 = nn.BatchNorm2d(8)
+        # self.bn2 = nn.BatchNorm2d(8)
+        # self.bn3 = nn.BatchNorm2d(16)
+        # self.bn4 = nn.BatchNorm2d(16)
+        # self.bn5 = nn.BatchNorm2d(24)
+        # self.bn6 = nn.BatchNorm2d(24)
+        # self.bn7 = nn.BatchNorm2d(32)
+        # self.bn8 = nn.BatchNorm2d(24)
+        # self.bn9 = nn.BatchNorm2d(24)
+        # self.bn10 = nn.BatchNorm2d(16)
         
         self.ln1 = nn.LayerNorm([8, 100, 151])
         self.ln2 = nn.LayerNorm([8, 50, 76])
@@ -179,7 +179,7 @@ class Encoder(nn.Module):
             nn.ReLU(inplace=False), 
         )  
         
-        self.dropout = nn.Dropout(p=0)
+        self.dropout = nn.Dropout(p=0) # This should be a param in config_params.json
         
         # Initialize convolutional layers with He initialization
         self._initialize_weights()
@@ -401,6 +401,10 @@ total_indices = np.arange(embed.shape[0])
 easy_negatives = np.setdiff1d(total_indices, hard_indices)
 easy_negatives = torch.tensor(easy_negatives)
 
+# hard_negatives = np.setdiff1d(total_indices, easy_negatives)
+# hard_negatives = torch.tensor(hard_negatives)
+
+
 # I want to divide the easy negatives into training easy negatives and testing easy negatives
 # Define the size of the split
 total_size = easy_negatives.size(0)
@@ -411,12 +415,31 @@ test_size = total_size - train_size  # The rest for testing
 indices = torch.randperm(total_size)
 
 # Split indices for training and testing sets
-train_indices = indices[:train_size]
-test_indices = indices[train_size:]
+train_indices_easy_neg = indices[:train_size]
+test_indices_easy_neg = indices[train_size:]
 
 # Use the indices to create training and testing sets
-train_easy_negatives = easy_negatives[train_indices]
-test_easy_negatives = easy_negatives[test_indices]
+train_easy_negatives = easy_negatives[train_indices_easy_neg]
+test_easy_negatives = easy_negatives[test_indices_easy_neg]
+
+
+# HARD NEGATIVES
+# I want to divide the HARD negatives into training HARD negatives and testing HARD negatives
+# Define the size of the split
+# total_size = hard_negatives.size(0)
+# train_size = int(0.5 * total_size)  # For example, 80% of the data for training
+# test_size = total_size - train_size  # The rest for testing
+
+# # Generate a random permutation of indices
+# indices = torch.randperm(total_size)
+
+# # Split indices for training and testing sets
+# train_indices_hard_neg = indices[:train_size]
+# test_indices_hard_neg = indices[train_size:]
+
+# # Use the indices to create training and testing sets
+# train_hard_negatives = hard_negatives[train_indices_hard_neg]
+# test_hard_negatives = hard_negatives[test_indices_hard_neg]
 
 
 shuffle_status = True
@@ -425,7 +448,6 @@ k_neg = 2
 
 training_dataset = Curating_Dataset(k_neg, train_hard_dataset, train_easy_negatives, dataset)
 testing_dataset = Curating_Dataset(k_neg, test_hard_dataset, test_easy_negatives, dataset)
-
 
 train_loader = torch.utils.data.DataLoader(training_dataset, batch_size = batch_size, shuffle = shuffle_status)
 test_loader = torch.utils.data.DataLoader(testing_dataset, batch_size = batch_size, shuffle = shuffle_status)
@@ -616,9 +638,11 @@ def infonce_loss_function(feats, temperature=1.0, num_augmentations=2):
 # plt.show()
 # plt.savefig(f'{folder_name}/UMAP_rep_of_model_train_region_untrained_model.png')
 
-temperature = 0.02
+temperature = 1.0
 num_augmentations = 2
-optimizer = optim.Adam(model.parameters(), lr=1e-3)
+# optimizer = optim.Adam(model.parameters(), lr=1e-3)
+optimizer = torch.optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-5)
+
 
 training_batch_loss = []
 pos_sim_train_batch = []
@@ -632,53 +656,41 @@ neg_sim_val_batch = []
 
 num_epochs = 100
 model = model.to(device).float()  # Convert model to float32 and move to device once
-noise_level = 0.5  # Define noise level outside the loop
+noise_level = 1.0 # Define noise level outside the loop
 num_augmentations = 2  # Define number of augmentations
 
+current_epoch = 0
+max_epochs = 20
 
-# train_loader = torch.utils.data.DataLoader(training_dataset, batch_size = batch_size, shuffle = shuffle_status)
-# test_loader = torch.utils.data.DataLoader(testing_dataset, batch_size = batch_size, shuffle = shuffle_status)
-
-step = 0
+# Create iterators for both loaders
 train_iter = iter(train_loader)
-test_iter = iter(test_loader) 
+test_iter = iter(test_loader)
 
-max_steps = 100
-while step<max_steps: # This is essentially epochs
+training_loss_accumulated = 0
+test_loss_accumulated = 0
 
-    # =============================================================================
-    #     # TRAINING STEP
-    # =============================================================================
-     
-    # # For each epoch I want to reset the batch loss and the positive and negative similarities across batches 
-    
-    batch_train_loss = 0
-    # pos_sim_train_value = 0
-    # neg_sim_train_value = 0       
-    
-    batch_val_loss = 0
-    # pos_sim_val_value = 0
-    # neg_sim_val_value = 0
+while current_epoch<max_epochs:
+    model.train()
     
     try:
-        # Extract the batch
+        # Process the i-th training batch
+        train_batch, train_neg_indices = next(train_iter)
+        optimizer.zero_grad()
         
-        batch, negative_indices = next(train_iter)
+    except StopIteration:
+        train_iter = iter(train_loader)
+        train_batch, train_neg_indices = next(train_iter)
+        print(f'EPOCH {current_epoch}:')
+        print(f'Training Loss: {training_loss_accumulated/len(train_loader)}')
         
-        
-    except StopIteration: # If we have gone through all batches
-        
-        train_iter = iter(train_loader) # New Epoch
-        
-        batch, negative_indices = next(train_iter)
+    
+        training_loss_accumulated = 0
         
     model.train()
-    training_loss = 0
+    train_batch = train_batch.to(device).to(torch.float32)
 
-    batch = batch.to(device).to(torch.float32)
-    
     # Data Augmentation
-    augmented_tensor = add_white_noise(batch, num_augmentations, noise_level = noise_level) 
+    augmented_tensor = add_white_noise(train_batch, num_augmentations, noise_level = noise_level) 
     
     # I need to flattened the augmented_tensor in order to pass it through my model
     augmented_tensor = augmented_tensor.view(-1, 1, 100, 151)  # New shape: [768, 1, 100, 151]
@@ -694,42 +706,94 @@ while step<max_steps: # This is essentially epochs
     
     # Now calculate the loss
     loss, pos_sim, neg_sim = infonce_loss_function(feats, temperature)
-    # pos_sim_train_value+=pos_sim.item()
-    # neg_sim_train_value+=neg_sim.item()
-    # batch_train_loss+=loss.item()
     
     training_batch_loss.append(loss.item())
     pos_sim_train_batch.append(pos_sim.item())
     neg_sim_train_batch.append(neg_sim.item())
+    training_loss_accumulated+=loss.item()
 
-
-    training_loss += loss.item()
-
-    optimizer.zero_grad()
     loss.backward()
     optimizer.step()
-    
-# =============================================================================
-#     VALIDATION STEP
-# =============================================================================
-
-    model.eval()
-    validation_loss = 0
+        
     with torch.no_grad():
         try:
-            batch, negative_indices = next(test_iter)
+            # Process the i-th training batch
+            test_batch, test_neg_indices = next(test_iter)
+            
         except StopIteration:
-            test_iter = iter(test_loader) # New Epoch
+            test_iter = iter(test_loader)
+            test_batch, test_neg_indices = next(test_iter)
+            print(f'Validation Loss: {test_loss_accumulated/len(test_loader)}')
+            test_loss_accumulated = 0
             
-            batch_val_loss = 0
-            pos_sim_val_value = 0
-            neg_sim_val_value = 0
+            if current_epoch%5 == 0:
+                
+                model_rep_train = []
+                model_for_eval = model.module
+                train_loader_hard = torch.utils.data.DataLoader(train_hard_dataset, batch_size = batch_size, shuffle = False)
+                # model_for_eval = model_for_eval.to('cpu')
+                model_for_eval.eval()
+                
+                with torch.no_grad():
+                    for batch_idx, (anchor_img, idx) in enumerate(train_loader_hard):
+                        data = anchor_img.to(torch.float32).to(device).squeeze(0)
+                        output = model_for_eval.forward_once(data)
+                        model_rep_train.append(output.cpu().detach().numpy())
+                
+                model_rep_stacked = np.concatenate((model_rep_train))
+                
+                reducer = umap.UMAP(metric = 'cosine', random_state=295) # For consistency
+                embed_train = reducer.fit_transform(model_rep_stacked)
+                
+                plt.figure()
+                plt.scatter(embed_train[:,0], embed_train[:,1], c = simple_tweetyclr.mean_colors_per_minispec[hard_indices[train_indices],:])
+                plt.xlabel("UMAP 1")
+                plt.ylabel("UMAP 2")
+                plt.suptitle(f'UMAP Representation of Training Hard Region')
+                plt.title(f'Total Slices: {embed_train.shape[0]}')
+                plt.show()
+                plt.savefig(f'{folder_name}/UMAP_rep_of_model_train_epoch_{current_epoch}.png')
+                
+                model.to(device).to(torch.float32)
+                
+                model_rep_test = []
+                test_loader_hard = torch.utils.data.DataLoader(test_hard_dataset, batch_size = batch_size, shuffle = False)
+                model_for_eval = model.module
+                # model_for_eval = model_for_eval.to('cpu')
+                model_for_eval.eval()
+                with torch.no_grad():
+                    for batch_idx, (anchor_img, idx) in enumerate(test_loader_hard):
+                        data = anchor_img.to(torch.float32).to(device).squeeze(0)
+                        output = model_for_eval.forward_once(data)
+                        model_rep_test.append(output.cpu().detach().numpy())
+                
+                model_rep_stacked = np.concatenate((model_rep_test))
+                
+                import umap
+                reducer = umap.UMAP(metric = 'cosine', random_state=295) # For consistency
+                embed_test = reducer.fit_transform(model_rep_stacked)
+                
+                plt.figure()
+                plt.scatter(embed_test[:,0], embed_test[:,1], c = simple_tweetyclr.mean_colors_per_minispec[hard_indices[test_indices],:])
+                plt.xlabel("UMAP 1")
+                plt.ylabel("UMAP 2")
+                plt.suptitle("UMAP of the Testing Hard Region")
+                plt.title(f'Total Slices: {embed_test.shape[0]}')
+                plt.show()
+                plt.savefig(f'{folder_name}/UMAP_rep_of_model_test_epoch_{current_epoch}.png')
+
+                model.to(device).to(torch.float32)
+                
+
+            # Increment the epoch counter
+            current_epoch += 1
             
-            batch, negative_indices = next(test_iter)
-            
-        batch = batch.to(device).to(torch.float32)
+                
+        model.eval()
+        test_batch = test_batch.to(device).to(torch.float32)
         
-        augmented_tensor = add_white_noise(batch, num_augmentations, noise_level = noise_level) 
+        # Data Augmentation
+        augmented_tensor = add_white_noise(test_batch, num_augmentations, noise_level = noise_level) 
         
         # I need to flattened the augmented_tensor in order to pass it through my model
         augmented_tensor = augmented_tensor.view(-1, 1, 100, 151)  # New shape: [768, 1, 100, 151]
@@ -742,28 +806,172 @@ while step<max_steps: # This is essentially epochs
         dynamic_batch_size = total_samples // group_size
         
         feats = feats.view(dynamic_batch_size, num_augmentations*(k_neg+1), 256)
+        
+        # Now calculate the loss
         loss, pos_sim, neg_sim = infonce_loss_function(feats, temperature)
         
-        # pos_sim_val_value+=pos_sim.item()
-        # neg_sim_val_value+=neg_sim.item()
-        # batch_val_loss+=loss.item()
-            
-            
         validation_batch_loss.append(loss.item())
         pos_sim_val_batch.append(pos_sim.item())
         neg_sim_val_batch.append(neg_sim.item())
         
-        validation_loss += loss.item()
-
-        
+        test_loss_accumulated+=loss.item()
         
 
 
-    
-    
 
 
-        
+
+
+# Let's look at loss curves and diagnostic plots
+plt.figure()
+plt.plot(training_batch_loss, label = 'Training Loss')
+plt.plot(validation_batch_loss, label = 'Validation Loss')
+plt.legend()
+plt.title("Unsupervised Training")
+plt.xlabel("Batch Number")
+plt.ylabel("Raw InfoNCE Loss")
+plt.savefig(f'{folder_name}/raw_loss_curve.png')
+plt.show()
+
+# LOg loss curve
+training_batch_loss_array = np.array(training_batch_loss)
+validation_batch_loss_array = np.array(validation_batch_loss)
+
+plt.figure()
+plt.plot(training_batch_loss_array, label = 'Training Loss')
+plt.plot(validation_batch_loss_array, label = 'Validation Loss')
+# plt.axhline(y = np.log(1e-1), label = "Minimum Possible Loss")
+plt.legend()
+plt.xlabel("Batch Number")
+plt.ylabel("Log(InfoNCE Loss)")
+plt.title("Unsupervised Training")
+plt.savefig(f'{folder_name}/log_loss_curve.png')
+plt.show()
+
+
+# NOw let's look at the positive and negative similarities for training and validation
+
+plt.figure()
+plt.plot(pos_sim_train_batch, label = 'Positive Similarities')
+plt.plot(neg_sim_train_batch, label = 'Negative Similarities')
+plt.legend()
+plt.xlabel("Batch Number")
+plt.ylabel("Cosine Similarity")
+plt.title("Training Data Learning Dynamics")
+plt.savefig(f'{folder_name}/training_data_sims_plot.png')
+plt.show()
+
+plt.figure()
+plt.plot(pos_sim_val_batch, label = 'Positive Similarities')
+plt.plot(neg_sim_val_batch, label = 'Negative Similarities')
+plt.legend()
+plt.xlabel("Batch Number")
+plt.ylabel("Cosine Similarity")
+plt.title("Validation Data Learning Dynamics")
+plt.savefig(f'{folder_name}/validation_data_sims_plot.png')
+plt.show()
+
+# =============================================================================
+# TRAINING DATA
+# =============================================================================
+
+model_rep_train = []
+
+model = model.to('cpu')
+model.eval()
+with torch.no_grad():
+    for batch_idx, (anchor_img, _ ) in enumerate(train_loader_hard):
+        data = anchor_img.to(torch.float32)
+        output = model.module.forward_once(data)
+        model_rep_train.append(output.numpy())
+
+model_rep_stacked = np.concatenate((model_rep_train))
+
+import umap
+reducer = umap.UMAP(metric = 'cosine', random_state=295) # For consistency
+embed_train = reducer.fit_transform(model_rep_stacked)
+
+plt.figure()
+plt.scatter(embed_train[:,0], embed_train[:,1], c = simple_tweetyclr.mean_colors_per_minispec[hard_indices[train_indices],:])
+plt.xlabel("UMAP 1")
+plt.ylabel("UMAP 2")
+plt.suptitle(f'UMAP Representation of Training Hard Region')
+plt.title(f'Total Slices: {embed_train.shape[0]}')
+plt.show()
+plt.savefig(f'{folder_name}/UMAP_rep_of_model_train.png')
+
+# =============================================================================
+# TESTING DATA
+# =============================================================================
+
+model_rep_test = []
+
+model = model.to('cpu')
+model.eval()
+with torch.no_grad():
+    for batch_idx, (anchor_img, _ ) in enumerate(test_loader_hard):
+        data = anchor_img.to(torch.float32)
+        output = model.module.forward_once(data)
+        model_rep_test.append(output.numpy())
+
+model_rep_stacked = np.concatenate((model_rep_test))
+
+import umap
+reducer = umap.UMAP(metric = 'cosine', random_state=295) # For consistency
+embed_test = reducer.fit_transform(model_rep_stacked)
+
+plt.figure()
+plt.scatter(embed_test[:,0], embed_test[:,1], c = simple_tweetyclr.mean_colors_per_minispec[hard_indices[test_indices],:])
+plt.xlabel("UMAP 1")
+plt.ylabel("UMAP 2")
+plt.suptitle("UMAP of the Testing Hard Region")
+plt.title(f'Total Slices: {embed_test.shape[0]}')
+plt.show()
+plt.savefig(f'{folder_name}/UMAP_rep_of_model_test.png')
+
+
+model_form = model.module
+
+
+model_arch = str(model_form)
+forward_method = inspect.getsource(model_form.forward)
+forward_once_method = inspect.getsource(model_form.forward_once)
+
+# Splitting the string into an array of lines
+model_arch_lines = model_arch.split('\n')
+forward_method_lines = forward_method.split('\n')
+forward_once_method_lines = forward_once_method.split('\n')
+
+
+# CHANGE THIS 
+
+
+experiment_params = {
+    "Data_Directory": bird_dir,
+    "Window_Size": simple_tweetyclr.window_size, 
+    "Stride_Size": simple_tweetyclr.stride, 
+    "Num_Spectrograms": simple_tweetyclr.num_spec, 
+    "Total_Slices": simple_tweetyclr.stacked_windows.shape[0], 
+    "Frequencies_of_Interest": masking_freq_tuple, 
+    "Data_Standardization": "None",
+    "Optimizer": str(optimizer), 
+    "Num_negative_samples": k_neg,
+    "Num_Augmentations": num_augmentations,
+    "Temperature": temperature,
+    "Num_Epochs": num_epochs, 
+    "Torch_Random_Seed": 295, 
+    "Train_Proportion": train_perc,
+    "Model_Architecture": model_arch_lines, 
+    "Forward_Method": forward_method_lines, 
+    "Forward_Once_Method": forward_once_method_lines,
+    "Dataloader_Shuffle": shuffle_status, 
+    "Noise_Level": noise_level 
+    }
+
+import json
+
+with open(f'{simple_tweetyclr.folder_name}/experiment_params.json', 'w') as file:
+    json.dump(experiment_params, file, indent=4)
     
 
 
