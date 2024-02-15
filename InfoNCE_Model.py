@@ -301,7 +301,7 @@ class Encoder(nn.Module):
 
 
 fc_dimensionality = 256
-dropout_perc = 0.1
+dropout_perc = 0
 model = Encoder(fc_dimensionality=fc_dimensionality, dropout_perc=dropout_perc)
 # Check if multiple GPUs are available
 if torch.cuda.device_count() > 1:
@@ -349,6 +349,125 @@ train_loader = torch.utils.data.DataLoader(training_dataset, batch_size = batch_
 test_loader = torch.utils.data.DataLoader(testing_dataset, batch_size = batch_size, shuffle = shuffle_status)
 
 # TODO: Need to clean up this code. Need to make sure that I am calculating the validation loss at each model update, rather than calculating the validation loss after the model has seen the entire training set. 
+
+step = 0
+max_steps = 100
+
+train_iter = iter(train_loader)
+test_iter = iter(test_loader)
+
+# Initialize lists for storing metrics
+training_batch_loss = []
+pos_sim_batch_train = []
+neg_sim_batch_train = []
+
+
+validation_batch_loss = []
+pos_sim_batch_val = []
+neg_sim_batch_val = []
+
+
+
+while step < max_steps:
+    try:
+        batch, _ = next(train_iter)
+    except StopIteration:
+        train_iter = iter(train_loader)
+        batch, _ = next(train_iter)
+
+    # Move batch to device once and ensure it's float32
+    batch = batch.to(device).to(torch.float32)
+    
+    augmented_tensor = wn.white_noise(batch) 
+
+    # I need to flattened the augmented_tensor in order to pass it through my model
+    augmented_tensor = augmented_tensor.view(-1, 1, 100, 151)  # New shape: [768, 1, 100, 151]
+        
+    feats = model(augmented_tensor)  # Direct model invocation
+    
+    total_samples = feats.shape[0]
+    group_size = num_augmentations * (k_neg + 1)  # The size of each group
+
+    dynamic_batch_size = total_samples // group_size
+    
+    feats = feats.view(dynamic_batch_size, num_augmentations*(k_neg+1), fc_dimensionality)
+    loss, pos_sim, neg_sim = infonce_loss_function(feats, temperature)
+
+    # Backpropagation and optimization
+    optimizer.zero_grad()
+    loss.backward()
+    optimizer.step()
+
+    # Store metrics after each step
+    training_batch_loss.append(loss.item())
+    pos_sim_batch_train.append(pos_sim.item())
+    neg_sim_batch_train.append(neg_sim.item())
+
+    # Your existing code where validation loss is computed
+
+    model.eval()
+    with torch.no_grad():
+        try:
+            batch, _ = next(test_iter)
+        except StopIteration:
+            test_iter = iter(test_loader)
+            batch, _ = next(test_iter)
+            step +=1
+            print(f'Epoch {step}, Last Training Batch Loss: {training_batch_loss[-1]}, Last Validation Batch Loss: {validation_batch_loss[-1]}')
+
+        # Fetch the next batch from the validation set
+        batch = batch.to(device).to(torch.float32)
+
+        # Apply augmentation
+
+        augmented_tensor = wn.white_noise(batch) 
+
+        # I need to flattened the augmented_tensor in order to pass it through my model
+        augmented_tensor = augmented_tensor.view(-1, 1, 100, 151)  # New shape: [768, 1, 100, 151]
+            
+        feats = model(augmented_tensor)  # Direct model invocation
+        
+        total_samples = feats.shape[0]
+        group_size = num_augmentations * (k_neg + 1)  # The size of each group
+
+        dynamic_batch_size = total_samples // group_size
+        
+        feats = feats.view(dynamic_batch_size, num_augmentations*(k_neg+1), fc_dimensionality)
+        loss, pos_sim, neg_sim = infonce_loss_function(feats, temperature)
+
+        validation_batch_loss.append(loss.item())
+        pos_sim_batch_val.append(pos_sim.item())
+        neg_sim_batch_val.append(neg_sim.item())
+    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 for epoch in range(num_epochs):
     model.train()
