@@ -148,10 +148,11 @@ def creating_negatives_set(embed, hard_indices):
     
 
 class Augmentations:
-    def __init__(self) -> None:
-        pass
+    def __init__(self, noise_level, num_augmentations):
+        self.noise_level = noise_level
+        self.num_augmentations = num_augmentations
 
-    def white_noise(self, batch, num_augmentations):
+    def white_noise(self, batch):
         '''
         The main features of this function should be that the augmentations are interleaved. 
         That is [batch_size, num_augmented_samples, 1, 100, 151]
@@ -175,17 +176,17 @@ class Augmentations:
         
         # Generate noise for all augmentations across all samples
         # Shape: [batch_size, num_samples, num_augmentations, channels, height, width]
-        noise = torch.randn(batch_size, num_samples, num_augmentations, channels, height, width) * noise_level
+        noise = torch.randn(batch_size, num_samples, self.num_augmentations, channels, height, width) * self.noise_level
         noise = noise.to(batch.device)  # Ensure noise is on the same device as the batch
 
         # Apply noise to create augmentations
         # We expand the original batch to match the noise shape for addition
-        original_expanded = batch.unsqueeze(2).expand(-1, -1, num_augmentations, -1, -1, -1)
+        original_expanded = batch.unsqueeze(2).expand(-1, -1, self.num_augmentations, -1, -1, -1)
         augmented_batch = original_expanded + noise
         
         # Reshape to move the augmentations dimension to the end for easier permutation
         # And then flatten the last three dimensions into one
-        batch_noisy = augmented_batch.permute(0, 2, 1, 3, 4, 5).reshape(batch_size, num_augmentations * num_samples, channels, height, width)
+        batch_noisy = augmented_batch.permute(0, 2, 1, 3, 4, 5).reshape(batch_size, self.num_augmentations * num_samples, channels, height, width)
             
         return batch_noisy
 

@@ -50,9 +50,9 @@ directory = bird_dir+ 'Python_Files'
 analysis_path = f'{filepath}/Dropbox (University of Oregon)/Kapoor_Ananya/01_Projects/01_b_Canary_SSL/TweetyCLR_Repo/'
 
 # # Parameters we set
-num_spec = 100
+num_spec = 1452
 window_size = 100
-stride = 10
+stride = 100
 
 # Define the folder name
 
@@ -210,7 +210,7 @@ batch, negative_indices = next(iter(train_loader))
 
 
 class Encoder(nn.Module):
-    def __init__(self):
+    def __init__(self, fc_dimensionality, dropout_perc):
         super().__init__()
         self.conv1 = nn.Conv2d(1, 8, 3,1,padding=1)
         self.conv2 = nn.Conv2d(8, 8, 3,2,padding=1)
@@ -254,11 +254,11 @@ class Encoder(nn.Module):
         #     nn.Linear(256, 1)
         # )  
         self.fc = nn.Sequential(
-            nn.Linear(320, 256),
+            nn.Linear(320, fc_dimensionality),
             nn.ReLU(inplace=False), 
         )  
         
-        self.dropout = nn.Dropout(p=0.5)
+        self.dropout = nn.Dropout(p=dropout_perc)
         
         # Initialize convolutional layers with He initialization
         self._initialize_weights()
@@ -299,7 +299,10 @@ class Encoder(nn.Module):
         
         return features
 
-model = Encoder()
+
+fc_dimensionality = 256
+dropout_perc = 0.1
+model = Encoder(fc_dimensionality=fc_dimensionality, dropout_perc=dropout_perc)
 # Check if multiple GPUs are available
 if torch.cuda.device_count() > 1:
     print(f"Number of GPUs available: {torch.cuda.device_count()}")
@@ -313,14 +316,14 @@ model.to(device).to(torch.float32)
 # UNTRAINED MODEL REPRESENTATION
 # =============================================================================
 
-train_hard_loader = torch.utils.data.DataLoader(train_hard_dataset, batch_size = batch_size, shuffle = False)
-model_rep_untrained = create_UMAP_plot(train_hard_loader, simple_tweetyclr, hard_indices[train_indices], model, 'UMAP_rep_of_model_train_region_untrained_model', saveflag = True)
+# train_hard_loader = torch.utils.data.DataLoader(train_hard_dataset, batch_size = batch_size, shuffle = False)
+# model_rep_untrained = create_UMAP_plot(train_hard_loader, simple_tweetyclr, hard_indices[train_indices], model, 'UMAP_rep_of_model_train_region_untrained_model', saveflag = True)
 
 # =============================================================================
 # MODEL BUILDING
 # =============================================================================
 
-temperature = 0.02
+temperature = 1.0
 num_augmentations = 2
 optimizer = optim.Adam(model.parameters(), lr=1e-3)
 
@@ -336,14 +339,16 @@ validation_epoch_loss = []
 
 num_epochs = 100
 model = model.to(device).float()  # Convert model to float32 and move to device once
-noise_level = 0.05  # Define noise level outside the loop
+noise_level = 0.5  # Define noise level outside the loop
 num_augmentations = 2  # Define number of augmentations
 
+
+wn = Augmentations(noise_level = noise_level, num_augmentations=num_augmentations)
 
 train_loader = torch.utils.data.DataLoader(training_dataset, batch_size = batch_size, shuffle = shuffle_status)
 test_loader = torch.utils.data.DataLoader(testing_dataset, batch_size = batch_size, shuffle = shuffle_status)
 
-# TODO: Need to clean up this code.
+# TODO: Need to clean up this code. Need to make sure that I am calculating the validation loss at each model update, rather than calculating the validation loss after the model has seen the entire training set. 
 
 for epoch in range(num_epochs):
     model.train()
@@ -360,7 +365,7 @@ for epoch in range(num_epochs):
         # Move batch to device once and ensure it's float32
         batch = batch.to(device).to(torch.float32)
         
-        augmented_tensor = add_white_noise(batch, num_augmentations, noise_level = 0.05) 
+        augmented_tensor = wn.white_noise(batch) 
         
         # I need to flattened the augmented_tensor in order to pass it through my model
         augmented_tensor = augmented_tensor.view(-1, 1, 100, 151)  # New shape: [768, 1, 100, 151]
@@ -432,8 +437,8 @@ for epoch in range(num_epochs):
 
             # Move batch to device once and ensure it's float32
             batch = batch.to(device).to(torch.float32)
-            
-            augmented_tensor = add_white_noise(batch, num_augmentations, noise_level = 0.05) 
+
+            augmented_tensor = wn.white_noise(batch) 
             
             # I need to flattened the augmented_tensor in order to pass it through my model
             augmented_tensor = augmented_tensor.view(-1, 1, 100, 151)  # New shape: [768, 1, 100, 151]
@@ -544,63 +549,63 @@ plt.title("Validation Data Learning Dynamics")
 plt.savefig(f'{folder_name}/validation_data_sims_plot.png')
 plt.show()
 
-# =============================================================================
-# TRAINING DATA
-# =============================================================================
+# # =============================================================================
+# # TRAINING DATA
+# # =============================================================================
 
-model_rep_train = []
+# model_rep_train = []
 
-model = model.to('cpu')
-model.eval()
-with torch.no_grad():
-    for batch_idx, (anchor_img, _ ) in enumerate(train_loader_hard):
-        data = anchor_img.to(torch.float32)
-        output = model.module.forward_once(data)
-        model_rep_train.append(output.numpy())
+# model = model.to('cpu')
+# model.eval()
+# with torch.no_grad():
+#     for batch_idx, (anchor_img, _ ) in enumerate(train_loader_hard):
+#         data = anchor_img.to(torch.float32)
+#         output = model.module.forward_once(data)
+#         model_rep_train.append(output.numpy())
 
-model_rep_stacked = np.concatenate((model_rep_train))
+# model_rep_stacked = np.concatenate((model_rep_train))
 
-import umap
-reducer = umap.UMAP(metric = 'cosine', random_state=295) # For consistency
-embed_train = reducer.fit_transform(model_rep_stacked)
+# import umap
+# reducer = umap.UMAP(metric = 'cosine', random_state=295) # For consistency
+# embed_train = reducer.fit_transform(model_rep_stacked)
 
-plt.figure()
-plt.scatter(embed_train[:,0], embed_train[:,1], c = simple_tweetyclr.mean_colors_per_minispec[hard_indices[train_indices],:])
-plt.xlabel("UMAP 1")
-plt.ylabel("UMAP 2")
-plt.suptitle(f'UMAP Representation of Training Hard Region')
-plt.title(f'Total Slices: {embed_train.shape[0]}')
-plt.show()
-plt.savefig(f'{folder_name}/UMAP_rep_of_model_train.png')
+# plt.figure()
+# plt.scatter(embed_train[:,0], embed_train[:,1], c = simple_tweetyclr.mean_colors_per_minispec[hard_indices[train_indices],:])
+# plt.xlabel("UMAP 1")
+# plt.ylabel("UMAP 2")
+# plt.suptitle(f'UMAP Representation of Training Hard Region')
+# plt.title(f'Total Slices: {embed_train.shape[0]}')
+# plt.show()
+# plt.savefig(f'{folder_name}/UMAP_rep_of_model_train.png')
 
-# =============================================================================
-# TESTING DATA
-# =============================================================================
+# # =============================================================================
+# # TESTING DATA
+# # =============================================================================
 
-model_rep_test = []
+# model_rep_test = []
 
-model = model.to('cpu')
-model.eval()
-with torch.no_grad():
-    for batch_idx, (anchor_img, _ ) in enumerate(test_loader_hard):
-        data = anchor_img.to(torch.float32)
-        output = model.module.forward_once(data)
-        model_rep_test.append(output.numpy())
+# model = model.to('cpu')
+# model.eval()
+# with torch.no_grad():
+#     for batch_idx, (anchor_img, _ ) in enumerate(test_loader_hard):
+#         data = anchor_img.to(torch.float32)
+#         output = model.module.forward_once(data)
+#         model_rep_test.append(output.numpy())
 
-model_rep_stacked = np.concatenate((model_rep_test))
+# model_rep_stacked = np.concatenate((model_rep_test))
 
-import umap
-reducer = umap.UMAP(metric = 'cosine', random_state=295) # For consistency
-embed_test = reducer.fit_transform(model_rep_stacked)
+# import umap
+# reducer = umap.UMAP(metric = 'cosine', random_state=295) # For consistency
+# embed_test = reducer.fit_transform(model_rep_stacked)
 
-plt.figure()
-plt.scatter(embed_test[:,0], embed_test[:,1], c = simple_tweetyclr.mean_colors_per_minispec[hard_indices[test_indices],:])
-plt.xlabel("UMAP 1")
-plt.ylabel("UMAP 2")
-plt.suptitle("UMAP of the Testing Hard Region")
-plt.title(f'Total Slices: {embed_test.shape[0]}')
-plt.show()
-plt.savefig(f'{folder_name}/UMAP_rep_of_model_test.png')
+# plt.figure()
+# plt.scatter(embed_test[:,0], embed_test[:,1], c = simple_tweetyclr.mean_colors_per_minispec[hard_indices[test_indices],:])
+# plt.xlabel("UMAP 1")
+# plt.ylabel("UMAP 2")
+# plt.suptitle("UMAP of the Testing Hard Region")
+# plt.title(f'Total Slices: {embed_test.shape[0]}')
+# plt.show()
+# plt.savefig(f'{folder_name}/UMAP_rep_of_model_test.png')
 
 # # =============================================================================
 # # POSITIVE AUGMENTATIONS
@@ -727,7 +732,6 @@ experiment_params = {
     "Temperature": temperature,
     "Num_Epochs": num_epochs, 
     "Torch_Random_Seed": 295, 
-    # "Num_random_batches_for_epoch_calc": subset_val,
     "Accumulation_Size": train_perc, 
     "Train_Proportion": train_perc,
     "Model_Architecture": model_arch_lines, 
@@ -735,6 +739,8 @@ experiment_params = {
     "Forward_Once_Method": forward_once_method_lines,
     "Dataloader_Shuffle": shuffle_status, 
     "Noise_Level": noise_level, 
+    "fc_dimensionality": fc_dimensionality, 
+    "Dropout_Perc": dropout_perc
     }
 
 import json
