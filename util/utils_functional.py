@@ -153,42 +153,21 @@ class Augmentations:
         self.num_augmentations = num_augmentations
 
     def white_noise(self, batch):
-        '''
-        The main features of this function should be that the augmentations are interleaved. 
-        That is [batch_size, num_augmented_samples, 1, 100, 151]
-        Where [0,0,1,100,151] is the first augmentation of the anchor sample. 
-        Where [0,3,1,100,151] is the second augmented of the anchor sample 
-        Where [0,1,1,100,151] is the first augmentation of the second sample in batch 0
-        '''
-        """
-        Add white noise augmentations to a batch and interleave augmentations across samples.
-        
-        Parameters:
-        - batch: input tensor of shape [batch_size, num_samples, 1, 100, 151].
-        - num_augmentations: total number of augmentations to create for each sample, excluding the original.
-        - noise_level: standard deviation of the Gaussian noise to add.
-        
-        Returns:
-        - A tensor where each sample's augmentation is interleaved, 
-        with shape [batch_size, num_samples * num_augmentations, 1, 100, 151].
-        """
-        batch_size, num_samples, channels, height, width = batch.shape
-        
-        # Generate noise for all augmentations across all samples
-        # Shape: [batch_size, num_samples, num_augmentations, channels, height, width]
-        noise = torch.randn(batch_size, num_samples, self.num_augmentations, channels, height, width) * self.noise_level
-        noise = noise.to(batch.device)  # Ensure noise is on the same device as the batch
 
-        # Apply noise to create augmentations
-        # We expand the original batch to match the noise shape for addition
-        original_expanded = batch.unsqueeze(2).expand(-1, -1, self.num_augmentations, -1, -1, -1)
-        augmented_batch = original_expanded + noise
+        # Define the noise scale (e.g., 5% of the data range)
+        noise_scale = self.noise_level        
+        # # Generate uniform noise and scale it
+        noise = torch.rand_like(batch) * noise_scale
         
-        # Reshape to move the augmentations dimension to the end for easier permutation
-        # And then flatten the last three dimensions into one
-        batch_noisy = augmented_batch.permute(0, 2, 1, 3, 4, 5).reshape(batch_size, self.num_augmentations * num_samples, channels, height, width)
-            
-        return batch_noisy
+        # # Add the noise to the original tensor
+        noisy_tensor = batch + noise
+        
+        # # Clip values to be between 0 and 1
+        positive_img = torch.clamp(noisy_tensor, 0, 1)
+
+        return positive_img
+
+
 
 def infonce_loss_function(feats, temperature):
 

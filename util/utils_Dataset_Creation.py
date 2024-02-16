@@ -79,9 +79,30 @@ class Tweetyclr:
             masked_frequencies = frequencies[mask]
 
             subsetted_spec = spec[mask.reshape(mask.shape[0],),:]
+
+            # I now want to log and z-score
+            subsetted_spec_reshaped = subsetted_spec.flatten()
+
+            mean_val, std_val = subsetted_spec.mean(), subsetted_spec.std()
+            z_scored = (subsetted_spec - mean_val) / (std_val + 1e-7)
+            z_scored[np.isnan(z_scored)] = 0
+
+            # epsilon = 1
+
+            # logged = np.nan_to_num(np.log(subsetted_spec_reshaped + epsilon))
+            # mean_value = np.mean(logged)
+            # std_value = np.std(logged)
+
+            # z_scored = (logged - mean_value)/std_value
+            # z_scored.shape = subsetted_spec.shape
+
+            logged = np.nan_to_num(np.log(z_scored))
+            logged.shape = subsetted_spec.shape
+            # mean_value = np.mean(logged)
+            # std_value = np.std(logged)
             
             stacked_labels.append(labels)
-            stacked_specs.append(subsetted_spec)
+            stacked_specs.append(logged)
 
             
         stacked_specs = np.concatenate((stacked_specs), axis = 1)
