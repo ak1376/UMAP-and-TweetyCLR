@@ -60,7 +60,7 @@ stride = 100
 # experiment. The user should also provide a brief text description of what the
 # experiment is testing (like a Readme file)
 
-log_experiment = False
+log_experiment = True
 if log_experiment == True:
     user_input = input("Please enter the experiment name: ")
     folder_name = f'{analysis_path}Num_Spectrograms_{num_spec}_Window_Size_{window_size}_Stride_{stride}/{user_input}'
@@ -93,7 +93,13 @@ simple_tweetyclr_experiment_1 = Tweetyclr(num_spec, window_size, stride, folder_
 simple_tweetyclr = simple_tweetyclr_experiment_1
 
 # Finds the sliding windows
-simple_tweetyclr.first_time_analysis()
+# simple_tweetyclr.first_time_analysis()
+
+# with open(f'{simple_tweetyclr.folder_name}/simple_tweetyclr.pkl', 'wb') as file:
+#     pickle.dump(simple_tweetyclr, file)
+
+with open(f'{simple_tweetyclr.folder_name}/simple_tweetyclr.pkl', 'rb') as file:
+    simple_tweetyclr = pickle.load(file)
 
 # Documentation code
 if log_experiment == True: 
@@ -348,6 +354,102 @@ wn = Augmentations(noise_level = noise_level, num_augmentations=num_augmentation
 train_loader = torch.utils.data.DataLoader(training_dataset, batch_size = batch_size, shuffle = shuffle_status)
 test_loader = torch.utils.data.DataLoader(testing_dataset, batch_size = batch_size, shuffle = shuffle_status)
 
+# Overfitting step 1: Make sure I can overfit on a single batch
+train_batch, _= next(iter(train_loader))
+validation_batch, _ = next(iter(test_loader))
+
+step = 0
+max_steps = 100
+
+# Initialize lists for storing metrics
+training_batch_loss = []
+pos_sim_batch_train = []
+neg_sim_batch_train = []
+
+
+validation_batch_loss = []
+pos_sim_batch_val = []
+neg_sim_batch_val = []
+
+
+while step < max_steps:
+    # Move batch to device once and ensure it's float32
+    batch = train_batch.to(device).to(torch.float32)
+    
+    augmented_tensor = wn.white_noise(batch) 
+
+    # I need to flattened the augmented_tensor in order to pass it through my model
+    augmented_tensor = augmented_tensor.view(-1, 1, 100, 151)  # New shape: [768, 1, 100, 151]
+        
+    feats = model(augmented_tensor)  # Direct model invocation
+    
+    total_samples = feats.shape[0]
+    group_size = num_augmentations * (k_neg + 1)  # The size of each group
+
+    dynamic_batch_size = total_samples // group_size
+    
+    feats = feats.view(dynamic_batch_size, num_augmentations*(k_neg+1), fc_dimensionality)
+
+    loss, pos_sim, neg_sim = infonce_loss_function(feats, temperature)
+
+    # Backpropagation and optimization
+    optimizer.zero_grad()
+    loss.backward()
+    optimizer.step()
+
+    # Store metrics after each step
+    training_batch_loss.append(loss.item())
+    pos_sim_batch_train.append(pos_sim.item())
+    neg_sim_batch_train.append(neg_sim.item())
+
+    model.eval()
+    with torch.no_grad():
+        # Fetch the next batch from the validation set
+        batch = validation_batch.to(device).to(torch.float32)
+
+        # Apply augmentation
+
+        augmented_tensor = wn.white_noise(batch) 
+
+        # I need to flattened the augmented_tensor in order to pass it through my model
+        augmented_tensor = augmented_tensor.view(-1, 1, 100, 151)  # New shape: [768, 1, 100, 151]
+            
+        feats = model(augmented_tensor)  # Direct model invocation
+        
+        total_samples = feats.shape[0]
+        group_size = num_augmentations * (k_neg + 1)  # The size of each group
+
+        dynamic_batch_size = total_samples // group_size
+        
+        feats = feats.view(dynamic_batch_size, num_augmentations*(k_neg+1), fc_dimensionality)
+        loss, pos_sim, neg_sim = infonce_loss_function(feats, temperature)
+
+        validation_batch_loss.append(loss.item())
+        pos_sim_batch_val.append(pos_sim.item())
+        neg_sim_batch_val.append(neg_sim.item())
+
+        step +=1
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 # TODO: Need to clean up this code. Need to make sure that I am calculating the validation loss at each model update, rather than calculating the validation loss after the model has seen the entire training set. 
 
 step = 0
@@ -368,7 +470,7 @@ neg_sim_batch_val = []
 
 
 while step < max_steps:
-    
+
     try:
         batch, _ = next(train_iter)
     except StopIteration:

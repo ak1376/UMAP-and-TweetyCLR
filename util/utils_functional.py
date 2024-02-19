@@ -105,7 +105,7 @@ def plot_UMAP_embedding(embedding, mean_colors_per_minispec, image_paths, filepa
     save(p)
     show(p)
 
-def create_UMAP_plot(data_loader, simple_tweetyclr, indices_of_interest, model, name_of_file, saveflag = True):
+def create_UMAP_plot(data_loader, simple_tweetyclr, indices_of_interest, model, device, name_of_file, epoch = 0, saveflag = True):
 
     model_rep = []
     model = model.to('cpu')
@@ -125,11 +125,13 @@ def create_UMAP_plot(data_loader, simple_tweetyclr, indices_of_interest, model, 
     plt.scatter(embed[:,0], embed[:,1], c = simple_tweetyclr.mean_colors_per_minispec[indices_of_interest,:])
     plt.xlabel("UMAP 1")
     plt.ylabel("UMAP 2")
-    plt.suptitle(f'UMAP Representation of Training Hard Region')
+    plt.suptitle(f'UMAP Representation of Training Hard Region: Epoch {epoch}')
     plt.title(f'Total Slices: {embed.shape[0]}')
     plt.show()
     if saveflag == True:
         plt.savefig(f'{simple_tweetyclr.folder_name}/{name_of_file}.png')
+    
+    model = model.to(device).to(torch.float32)
 
     return model_rep
             

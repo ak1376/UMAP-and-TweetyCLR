@@ -80,35 +80,22 @@ class Tweetyclr:
 
             subsetted_spec = spec[mask.reshape(mask.shape[0],),:]
 
-            # I now want to log and z-score
-            subsetted_spec_reshaped = subsetted_spec.flatten()
+            # # I now want to log and z-score
+            # logged = np.log(subsetted_spec)
+            # logged = np.nan_to_num(logged)
 
-            mean_val, std_val = subsetted_spec.mean(), subsetted_spec.std()
-            z_scored = (subsetted_spec - mean_val) / (std_val + 1e-7)
-            z_scored[np.isnan(z_scored)] = 0
+            # mean_val, std_val = subsetted_spec.mean(), subsetted_spec.std()
+            # z_scored = (subsetted_spec - mean_val) / (std_val)
+            # z_scored[np.isnan(z_scored)] = 0
 
-            # epsilon = 1
-
-            # logged = np.nan_to_num(np.log(subsetted_spec_reshaped + epsilon))
-            # mean_value = np.mean(logged)
-            # std_value = np.std(logged)
-
-            # z_scored = (logged - mean_value)/std_value
-            # z_scored.shape = subsetted_spec.shape
-
-            logged = np.nan_to_num(np.log(z_scored))
-            logged.shape = subsetted_spec.shape
-            # mean_value = np.mean(logged)
-            # std_value = np.std(logged)
-            
             stacked_labels.append(labels)
-            stacked_specs.append(logged)
+            # stacked_specs.append(z_scored)
+            stacked_specs.append(subsetted_spec)
 
             
         stacked_specs = np.concatenate((stacked_specs), axis = 1)
         stacked_labels = np.concatenate((stacked_labels), axis = 0)
         stacked_labels.shape = (stacked_labels.shape[0],1)
-
 
         # Get a list of unique categories (syllable labels)
         unique_categories = np.unique(stacked_labels)

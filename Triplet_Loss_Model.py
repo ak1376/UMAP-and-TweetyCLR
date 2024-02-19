@@ -125,7 +125,7 @@ batch_size = 64
 total_dataset, total_dataloader = create_dataloader(stacked_windows, batch_size, np.arange(stacked_windows.shape[0]))
 
 # Need to compute the UMAP embedding
-# reducer = umap.UMAP(metric = 'cosine', random_state=295)
+reducer = umap.UMAP(metric = 'cosine', random_state=295)
 
 # embed = reducer.fit_transform(simple_tweetyclr.stacked_windows)
 embed = np.load(f'{analysis_path}Num_Spectrograms_{num_spec}_Window_Size_{window_size}_Stride_{stride}/embed.npy')
@@ -323,6 +323,11 @@ class APP_MATCHER(Dataset):
         negative_index = self.all_possible_negatives[random_index].item()
         
         negative_img = self.all_features[negative_index, :, :, :]
+
+        noisy_tensor = wn.white_noise(negative_img) 
+
+        # # Clip values to be between 0 and 1
+        negative_img = torch.clamp(noisy_tensor, 0, 1)
         
         return anchor_img, positive_img, negative_img, negative_index
         
@@ -469,7 +474,7 @@ class Encoder(nn.Module):
 
 
 fc_dimensionality = 256
-dropout_perc = 0.25
+dropout_perc = 0
 model = Encoder(fc_dimensionality=fc_dimensionality, dropout_perc=dropout_perc)
 # Check if multiple GPUs are available
 if torch.cuda.device_count() > 1:
@@ -480,8 +485,31 @@ if torch.cuda.device_count() > 1:
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model.to(device).to(torch.float32)
 
-margin_value = 1.0
-criterion = nn.TripletMarginLoss(margin=margin_value, p=2)
+margin_value = 10.0
+
+class TripletLoss(nn.Module):
+    def __init__(self, margin=1.0):
+        super(TripletLoss, self).__init__()
+        self.margin = margin
+        
+    def calc_euclidean(self, x1, x2):
+        return (x1 - x2).pow(2).sum(1)
+    
+    def forward(self, anchor: torch.Tensor, positive: torch.Tensor, negative: torch.Tensor) -> torch.Tensor:
+        distance_positive = self.calc_euclidean(anchor, positive)
+        distance_negative = self.calc_euclidean(anchor, negative)
+        raw_losses = distance_positive - distance_negative + self.margin
+        losses = torch.relu(raw_losses)
+
+        prop_nonzero_losses = torch.mean((losses > 0).float())
+
+        return losses.mean(), distance_positive.clone().detach().cpu().numpy(), distance_negative.clone().detach().cpu().numpy(), raw_losses, prop_nonzero_losses.clone().detach().cpu().numpy()
+
+
+criterion = TripletLoss(margin = margin_value)
+
+
+# criterion = nn.TripletMarginLoss(margin=margin_value, p=2)
 # optimizer = optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-5)
 optimizer = optim.Adam(model.parameters(), lr=1e-3)
 
@@ -498,84 +526,237 @@ early_stop = False
 # =============================================================================
 
 # train_hard_loader = torch.utils.data.DataLoader(train_hard_dataset, batch_size = batch_size, shuffle = False)
-# model_rep_untrained = create_UMAP_plot(train_hard_loader, simple_tweetyclr, hard_indices[train_indices], model, 'UMAP_rep_of_model_train_region_untrained_model', saveflag = True)
+# model_rep_untrained = create_UMAP_plot(train_hard_loader, simple_tweetyclr, hard_indices[train_indices], model, device, 'UMAP_rep_of_model_train_region_untrained_model', saveflag = True)
 
 
 # =============================================================================
 # MODEL BUILDING
 # =============================================================================
 
-step = 0
-max_steps = 100
 
-train_iter = iter(train_loader)
-test_iter = iter(test_loader)
-
-training_epoch_loss = []
-training_batch_loss = []
-validation_epoch_loss = []
-validation_batch_loss = []
-
-training_pos_aug = []
-training_neg_sample = []
-
-validation_pos_aug = []
-validation_neg_sample = []
-
-
-while step < max_steps:
-    model.to(device).to(torch.float32)
-
-    try:
-        anchor_img, positive_img, negative_img, negative_index = next(train_iter)
-    except StopIteration:
-        train_iter = iter(train_loader)
-        anchor_img, positive_img, negative_img, negative_index = next(train_iter)
-
-
-    # Move batch to device once and ensure it's float32
+def train_one_batch(model, anchor_img, positive_img, negative_img, loss_fn, optimizer, device):
+    model.train()  # Set the model to training mode
     anchor_img, positive_img, negative_img = anchor_img.to(device, dtype = torch.float32), positive_img.to(device, dtype = torch.float32), negative_img.to(device, dtype = torch.float32)
-    
-    optimizer.zero_grad()
+
+    # Forward pass: compute the model output
     anchor_emb, positive_emb, negative_emb = model(anchor_img, positive_img, negative_img)
-    # training_pos_aug.append(positive_img.detach().cpu())
-    # training_neg_sample.append(negative_img.detach().cpu())
-    loss = criterion(anchor_emb, positive_emb, negative_emb)
-    training_batch_loss.append(loss.item())
-    loss.backward()
-    optimizer.step()
 
-    model.eval()
-    with torch.no_grad():
-        try:
-            anchor_img, positive_img, negative_img, negative_index = next(test_iter)
-        except StopIteration:
-            test_iter = iter(test_loader)
-            anchor_img, positive_img, negative_img, negative_index = next(test_iter)
-            print(f'Epoch {step}, Last Training Batch Loss: {training_batch_loss[-1]}, Last Validation Batch Loss: {validation_batch_loss[-1]}')
-            step +=1
+    # Compute loss
+    loss, positive_dist, negative_dist, raw_losses, prop_nonzero_losses = loss_fn(anchor_emb, positive_emb, negative_emb)
 
+    # Backward pass and optimize
+    optimizer.zero_grad()  # Clear previous gradients
+    loss.backward()  # Compute gradients
+    optimizer.step()  # Update model parameters
 
-        # Move batch to device once and ensure it's float32
-        anchor_img, positive_img, negative_img = anchor_img.to(device, dtype = torch.float32), positive_img.to(device, dtype = torch.float32), negative_img.to(device, dtype = torch.float32)
-        
+    return loss.item(), positive_dist, negative_dist, raw_losses, prop_nonzero_losses
+
+def validate_one_batch(model, anchor_img, positive_img, negative_img, loss_fn, device):
+    model.eval()  # Set the model to evaluation mode
+    anchor_img, positive_img, negative_img = anchor_img.to(device, dtype = torch.float32), positive_img.to(device, dtype = torch.float32), negative_img.to(device, dtype = torch.float32)
+
+    with torch.no_grad():  # Inference mode, gradients not needed
+        # Forward pass
         anchor_emb, positive_emb, negative_emb = model(anchor_img, positive_img, negative_img)
-        # training_pos_aug.append(positive_img.detach().cpu())
-        # training_neg_sample.append(negative_img.detach().cpu())
-        loss = criterion(anchor_emb, positive_emb, negative_emb)
 
-        validation_batch_loss.append(loss.item())
+        # Compute loss
+        loss, positive_dist, negative_dist, raw_losses, prop_nonzero_losses = loss_fn(anchor_emb, positive_emb, negative_emb)
 
-# Let's look at loss curves and diagnostic plots
-plt.figure()
-plt.plot(training_batch_loss, label = 'Training Loss')
-plt.plot(validation_batch_loss, label = 'Validation Loss')
-plt.legend()
-plt.title("Unsupervised Training")
-plt.xlabel("Batch Number")
-plt.ylabel("Raw InfoNCE Loss")
-plt.savefig(f'{folder_name}/raw_loss_curve.png')
-plt.show()
+    return loss.item(), positive_dist, negative_dist, raw_losses, prop_nonzero_losses
+
+def train_and_validate(model, train_loader, test_loader, loss_fn, optimizer, device):
+    epoch_train_losses = []
+    epoch_val_losses = []
+
+    batch_train_losses = []
+    batch_val_losses = []
+
+    batch_pos_dist_train = []
+    batch_pos_dist_val = []
+
+    batch_neg_dist_train = []
+    batch_neg_dist_val = []
+
+    batch_prop_train = []
+    batch_prop_val = []
+
+    for epoch in range(num_epochs):
+        print(f"Epoch {epoch+1}/{num_epochs}")
+        train_losses, val_losses = [], []
+
+        for (anchor_img_train, positive_img_train, negative_img_train, _), (anchor_img_val, positive_img_val, negative_img_val, _) in zip(train_loader, test_loader):
+            train_loss, train_pos_dist, train_neg_dist, train_raw_losses, train_prop = train_one_batch(model, anchor_img_train, positive_img_train, negative_img_train, loss_fn, optimizer, device)
+            val_loss, val_pos_dist, val_neg_dist, val_raw_losses, val_prop = validate_one_batch(model, anchor_img_val, positive_img_val, negative_img_val, loss_fn, device)
+            
+            train_losses.append(train_loss)
+            val_losses.append(val_loss)
+
+            batch_train_losses.append(train_raw_losses)
+            batch_val_losses.append(val_raw_losses)
+
+            batch_pos_dist_train.append(train_pos_dist)
+            batch_pos_dist_val.append(val_pos_dist)
+
+            batch_neg_dist_train.append(train_neg_dist)
+            batch_neg_dist_val.append(val_neg_dist)
+
+            batch_prop_train.append(train_prop)
+            batch_prop_val.append(val_prop)
+
+
+        # I want to visualize the positive distance distributions for training
+        plt.figure()
+        plt.hist(batch_pos_dist_train[0], alpha = 0.7, label = 'First Model Update')
+        plt.hist(batch_pos_dist_train[-1], alpha = 0.7, label = 'Last Model Update')
+        plt.legend()
+        plt.xlabel("Euclidean Distance")
+        plt.title("Positive Distance Distribution for Training Data")
+        plt.savefig(f'{simple_tweetyclr.folder_name}/epoch_{epoch}_positive_distance_dist_train.png')
+        plt.show()
+
+        # I want to visualize the negative distance distributions for training
+        plt.figure()
+        plt.hist(batch_neg_dist_train[0], alpha = 0.7, label = 'First Model Update')
+        plt.hist(batch_neg_dist_train[-1], alpha = 0.7, label = 'Last Model Update')
+        plt.legend()
+        plt.xlabel("Euclidean Distance")
+        plt.title("Negative Distance Distribution for Training Data")
+        plt.savefig(f'{simple_tweetyclr.folder_name}/epoch_{epoch}_negative_distance_dist_train.png')
+        plt.show()
+
+        # I want to visualize the positive distance distributions for validation
+        plt.figure()
+        plt.hist(batch_pos_dist_val[0], alpha = 0.7, label = 'First Model Update')
+        plt.hist(batch_pos_dist_val[-1], alpha = 0.7, label = 'Last Model Update')
+        plt.legend()
+        plt.xlabel("Euclidean Distance")
+        plt.title("Positive Distance Distribution for Validation Data")
+        plt.savefig(f'{simple_tweetyclr.folder_name}/epoch_{epoch}_positive_distance_dist_val.png')
+        plt.show()
+
+        # I want to visualize the negative distance distributions for validation
+        plt.figure()
+        plt.hist(batch_neg_dist_val[0], alpha = 0.7, label = 'First Model Update')
+        plt.hist(batch_neg_dist_val[-1], alpha = 0.7, label = 'Last Model Update')
+        plt.legend()
+        plt.xlabel("Euclidean Distance")
+        plt.title("Negative Distance Distribution for Validation Data")
+        plt.savefig(f'{simple_tweetyclr.folder_name}/epoch_{epoch}_negative_distance_dist_val.png')
+        plt.show()
+        
+        avg_train_loss = sum(train_losses) / len(train_losses)
+        avg_val_loss = sum(val_losses) / len(val_losses)
+
+        epoch_train_losses.append(train_losses)
+        epoch_val_losses.append(val_losses)
+
+        print(f"Training Loss: {avg_train_loss:.4f}, Validation Loss: {avg_val_loss:.4f}")
+
+        if epoch % 5 == 0:
+            train_hard_loader = torch.utils.data.DataLoader(train_hard_dataset, batch_size = batch_size, shuffle = False)
+            model_rep_state = create_UMAP_plot(train_hard_loader, simple_tweetyclr, hard_indices[train_indices], model, device, f'UMAP_rep_of_model_train_region_model_at_epoch_{epoch}', epoch, saveflag = True)
+
+
+
+
+train_and_validate(model, train_loader, test_loader, criterion, optimizer, device)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# step = 0
+# max_steps = 100
+
+# train_iter = iter(train_loader)
+# test_iter = iter(test_loader)
+
+# training_epoch_loss = []
+# training_batch_loss = []
+# validation_epoch_loss = []
+# validation_batch_loss = []
+
+# training_pos_aug = []
+# training_neg_sample = []
+
+# validation_pos_aug = []
+# validation_neg_sample = []
+
+
+# while step < max_steps:
+#     model.to(device).to(torch.float32)
+
+#     try:
+#         anchor_img, positive_img, negative_img, negative_index = next(train_iter)
+#     except StopIteration:
+#         train_iter = iter(train_loader)
+#         anchor_img, positive_img, negative_img, negative_index = next(train_iter)
+
+
+#     # Move batch to device once and ensure it's float32
+#     anchor_img, positive_img, negative_img = anchor_img.to(device, dtype = torch.float32), positive_img.to(device, dtype = torch.float32), negative_img.to(device, dtype = torch.float32)
+    
+#     optimizer.zero_grad()
+#     anchor_emb, positive_emb, negative_emb = model(anchor_img, positive_img, negative_img)
+#     # training_pos_aug.append(positive_img.detach().cpu())
+#     # training_neg_sample.append(negative_img.detach().cpu())
+#     loss = criterion(anchor_emb, positive_emb, negative_emb)
+#     training_batch_loss.append(loss.item())
+#     loss.backward()
+#     optimizer.step()
+
+#     model.eval()
+#     with torch.no_grad():
+#         try:
+#             anchor_img, positive_img, negative_img, negative_index = next(test_iter)
+#         except StopIteration:
+#             test_iter = iter(test_loader)
+#             anchor_img, positive_img, negative_img, negative_index = next(test_iter)
+#             print(f'Epoch {step}, Last Training Batch Loss: {training_batch_loss[-1]}, Last Validation Batch Loss: {validation_batch_loss[-1]}')
+#             step +=1
+
+
+#         # Move batch to device once and ensure it's float32
+#         anchor_img, positive_img, negative_img = anchor_img.to(device, dtype = torch.float32), positive_img.to(device, dtype = torch.float32), negative_img.to(device, dtype = torch.float32)
+        
+#         anchor_emb, positive_emb, negative_emb = model(anchor_img, positive_img, negative_img)
+#         # training_pos_aug.append(positive_img.detach().cpu())
+#         # training_neg_sample.append(negative_img.detach().cpu())
+#         loss = criterion(anchor_emb, positive_emb, negative_emb)
+
+#         validation_batch_loss.append(loss.item())
+
+# # Let's look at loss curves and diagnostic plots
+# plt.figure()
+# plt.plot(training_batch_loss, label = 'Training Loss')
+# plt.plot(validation_batch_loss, label = 'Validation Loss')
+# plt.legend()
+# plt.title("Unsupervised Training")
+# plt.xlabel("Batch Number")
+# plt.ylabel("Raw InfoNCE Loss")
+# plt.savefig(f'{folder_name}/raw_loss_curve.png')
+# plt.show()
 
 # # =============================================================================
 # # POSITIVE AUGMENTATIONS

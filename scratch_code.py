@@ -9,8 +9,8 @@ Created on Mon Feb 12 15:12:20 2024
 import numpy as np
 import torch
 import sys
-# filepath = '/home/akapoor'
-filepath = '/Users/AnanyaKapoor'
+filepath = '/home/akapoor'
+# filepath = '/Users/AnanyaKapoor'
 import os
 # os.chdir('/Users/AnanyaKapoor/Downloads/TweetyCLR')
 os.chdir(f'{filepath}/Dropbox (University of Oregon)/Kapoor_Ananya/01_Projects/01_b_Canary_SSL/TweetyCLR_End_to_End')
@@ -251,27 +251,49 @@ plt.show()
 hard_indices_dict = {}
 hard_region_coordinates = {}
 
-# Get current axes
-ax = plt.gca()
-# Get current limits
-xlim = ax.get_xlim()
-ylim = ax.get_ylim()
+# Plot the initial scatter plot
+fig, ax = plt.subplots()
+sc = ax.scatter(embed[:,0], embed[:,1], s = 10, c = simple_tweetyclr.mean_colors_per_minispec)
+plt.title('Zoom in on a region of interest (ROI), then press Enter')
 
-hard_indices = np.where((embed[:,0]>=xlim[0])&(embed[:,0]<=xlim[1]) & (embed[:,1]>=ylim[0]) & (embed[:,1]<=ylim[1]))[0]
+# Define a callback function that will be called when a key is pressed
+def on_press(event):
+    if event.key == 'enter':
+        # Get the current axes and limits
+        xlim = ax.get_xlim()
+        ylim = ax.get_ylim()
 
+        # Find the points within the new limits
+        hard_indices = np.where(
+            (embed[:, 0] >= xlim[0]) & (embed[:, 0] <= xlim[1]) &
+            (embed[:, 1] >= ylim[0]) & (embed[:, 1] <= ylim[1])
+        )[0]
 
-hard_indices_dict[0] = hard_indices
-hard_region_coordinates[0] = [xlim, ylim]
+        # Update the dictionaries with the new hard indices and coordinates
+        hard_indices_dict[0] = hard_indices
+        hard_region_coordinates[0] = [xlim, ylim]
+
+        # Disconnect the event to prevent multiple captures if Enter is pressed again
+        plt.disconnect(cid)
+
+        print("ROI selected. Hard indices captured.")
+        # If needed, re-plot here with the zoomed-in area or perform other actions
+
+# Connect the key press event to the callback function
+cid = plt.connect('key_press_event', on_press)
+
+# Show the plot with the event connection
+plt.show()
 
 # Now let's zoom out on the matplotlib plot
 
 # Zoom out by changing the limits
 # You can adjust these values as needed to zoom out to the desired level
-ax.set_xlim([min(embed[:,0]) - 1, max(embed[:,0]) + 1])  # Zoom out on x-axis
-ax.set_ylim([min(embed[:,1]) - 1, max(embed[:, 1]) + 1])  # Zoom out on y-axis
+# ax.set_xlim([min(embed[:,0]) - 1, max(embed[:,0]) + 1])  # Zoom out on x-axis
+# ax.set_ylim([min(embed[:,1]) - 1, max(embed[:, 1]) + 1])  # Zoom out on y-axis
 
-# Show the updated plot
-plt.show()
+# # Show the updated plot
+# plt.show()
 
 
 for i in np.arange(len(hard_indices_dict)):
