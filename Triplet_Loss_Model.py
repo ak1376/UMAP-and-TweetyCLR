@@ -98,11 +98,15 @@ simple_tweetyclr = simple_tweetyclr_experiment_1
 # Finds the sliding windows
 # simple_tweetyclr.first_time_analysis()
 
-# with open(f'{simple_tweetyclr.folder_name}/simple_tweetyclr.pkl', 'wb') as file:
+# with open(f'{analysis_path}Num_Spectrograms_{num_spec}_Window_Size_{window_size}_Stride_{stride}/simple_tweetyclr.pkl', 'wb') as file:
 #     pickle.dump(simple_tweetyclr, file)
 
-with open(f'{simple_tweetyclr.folder_name}/simple_tweetyclr.pkl', 'rb') as file:
+with open(f'{analysis_path}Num_Spectrograms_{num_spec}_Window_Size_{window_size}_Stride_{stride}/simple_tweetyclr.pkl', 'rb') as file:
     simple_tweetyclr = pickle.load(file)
+
+
+simple_tweetyclr.folder_name = folder_name
+
 
 # Documentation code
 if log_experiment == True: 
@@ -120,9 +124,11 @@ stacked_windows.shape = (stacked_windows.shape[0], 100, 151)
 
 stacked_windows.shape = (stacked_windows.shape[0],1, 100, 151) 
 
+stacked_labels_for_window = simple_tweetyclr.stacked_labels_for_window.copy()
+
 batch_size = 64
 
-total_dataset, total_dataloader = create_dataloader(stacked_windows, batch_size, np.arange(stacked_windows.shape[0]))
+total_dataset, total_dataloader = create_dataloader(stacked_windows, batch_size, stacked_labels_for_window, np.arange(stacked_windows.shape[0]))
 
 # Need to compute the UMAP embedding
 reducer = umap.UMAP(metric = 'cosine', random_state=295)
@@ -169,8 +175,8 @@ data_for_analysis = data_for_analysis.reshape(data_for_analysis.shape[0], 1, 100
 
 hard_indices = hard_indices_dict[0]
 hard_dataset = data_for_analysis[hard_indices,:].reshape(len(hard_indices), 1, 100, 151) # Dataset of all the confused spectrogram slices that we want to untangle
-
-hard_dataset, hard_dataloader = create_dataloader(hard_dataset, batch_size, hard_indices, shuffle_status=False)
+hard_labels = stacked_labels_for_window[hard_indices,:].copy()
+hard_dataset, hard_dataloader = create_dataloader(hard_dataset, batch_size, hard_labels, hard_indices, shuffle_status=False)
 
 # Need to create a train dataset and test dataset on the hard indices. 
 
@@ -210,23 +216,26 @@ class APP_MATCHER(Dataset):
         super(APP_MATCHER, self).__init__()
         
         # Extracting all slices and indices
-        all_features, all_indices = zip(*[dataset[i] for i in range(len(dataset))]) # This will be used to create the all_possible_negatives region 
+        all_features, all_labels, all_indices = zip(*[dataset[i] for i in range(len(dataset))]) # This will be used to create the all_possible_negatives region 
         
-        hard_features, hard_indices = zip(*[hard_dataset[i] for i in range(len(hard_dataset))]) # This will be used to create all the hard features
+        hard_features, hard_labels, hard_indices = zip(*[hard_dataset[i] for i in range(len(hard_dataset))]) # This will be used to create all the hard features
         
         # Converting lists of tensors to a single tensor
-        all_features, all_indices = torch.stack(all_features), torch.stack(all_indices)
-        hard_features, hard_indices = torch.stack(hard_features), torch.stack(hard_indices)
-        
-        
+        all_features, all_labels, all_indices = torch.stack(all_features), torch.stack(all_labels), torch.stack(all_indices)
+        hard_features, hard_labels, hard_indices = torch.stack(hard_features), torch.stack(hard_labels), torch.stack(hard_indices)
+                
         self.dataset = dataset
         self.hard_dataset = hard_dataset
         
         self.all_features = all_features
         self.all_indices = all_indices
-        
+        self.all_labels = all_labels
+
+
         self.hard_features = hard_features
         self.hard_indices = hard_indices
+        self.hard_labels = hard_labels
+
         self.total_hard_indices = total_hard_indices
         self.umap_embedding = torch.tensor(umap_embedding)
         
@@ -235,6 +244,8 @@ class APP_MATCHER(Dataset):
         all_possible_negatives = self.all_indices[mask]
         
         self.all_possible_negatives = all_possible_negatives
+
+        self.unique_labels = np.unique(self.all_labels[self.all_possible_negatives,:]) # For selecting negatives in a supervised way
         
         # Find the positive images
         dict_of_indices = self.select_positive_image()
@@ -318,6 +329,30 @@ class APP_MATCHER(Dataset):
         #         Negative Sample
         # =============================================================================
         
+        ### SUPERVISED
+
+        # I want to remove the labels associated with the hard labels
+        # Values to remove
+        # values_to_remove = [4, 10]
+
+        # # Create a mask where True indicates the elements that should be kept
+        # mask = ~np.isin(self.unique_labels, values_to_remove)
+
+        # filtered_arr = self.unique_labels[mask]
+
+        # negative_label = np.random.choice(filtered_arr)
+
+        # # Create a Boolean mask where True indicates the presence of the specified element
+        # mask = self.all_labels[self.all_possible_negatives,:] == negative_label
+
+        # # Use numpy.any() to find rows containing at least one specified element
+        # rows_with_specified_element = mask.any(dim=1)
+        # true_indices = rows_with_specified_element.nonzero().squeeze()
+
+        # random_index = true_indices[torch.randint(0, true_indices.size(0), (1,))].item()
+
+        ### UNSUPERVISED
+
         random_index = torch.randint(0, self.all_possible_negatives.size(0), (1,)).item()
         
         negative_index = self.all_possible_negatives[random_index].item()
@@ -343,6 +378,8 @@ shuffle_status = True
 
 train_loader = torch.utils.data.DataLoader(train_dataset, batch_size = batch_size, shuffle = shuffle_status)
 test_loader = torch.utils.data.DataLoader(test_dataset, batch_size = batch_size, shuffle = shuffle_status)
+
+anc, pos, neg, idx = next(iter(train_loader))
 
 class Encoder(nn.Module):
     def __init__(self, fc_dimensionality, dropout_perc):
@@ -511,33 +548,67 @@ class InfoNCE_Loss(nn.Module):
         self.temperature = temperature
 
     def normalize(self, feat):
-        feat_l2 = feat / torch.norm(feat, p=2, keepdim = True)
+        feat_l2 = feat / torch.norm(feat, p=2, dim=1, keepdim=True)
         return feat_l2
     
     
     def calc_cos_sim(self, feat1_l2, feat2_l2):
 
-        cos_sim = torch.sum(feat1_l2 * feat2_l2, dim=1)
+        cos_sim = torch.sum(feat1_l2 * feat2_l2, dim=1) # Return this for plotting / debugging purposes.
+        scaled_cos_sim = cos_sim / self.temperature
 
-        return cos_sim 
+        cos_sim = cos_sim.clone().detach().cpu().numpy()
+
+        return scaled_cos_sim, cos_sim
     
-    def forward(self, anchor_feat, positive_feat, negative_feat):
-        anchor_l2 = self.normalize(anchor_feat)
-        positive_l2 = self.normalize(positive_feat)
-        negative_l2 = self.normalize(negative_feat)
+    # def forward(self, anchor_feat, positive_feat, negative_feat):
+    #     anchor_l2 = self.normalize(anchor_feat)
+    #     positive_l2 = self.normalize(positive_feat)
+    #     negative_l2 = self.normalize(negative_feat)
 
-        pos_sim = self.calc_cos_sim(anchor_l2, positive_l2)
-        neg_sim = self.calc_cos_sim(anchor_l2, negative_l2)
+    #     pos_sim, debug_pos_sim = self.calc_cos_sim(anchor_l2, positive_l2)
+    #     neg_sim, debug_neg_sim = self.calc_cos_sim(anchor_l2, negative_l2)
 
-        loss_values = -1*torch.log(torch.exp(pos_sim/self.temperature) / torch.exp(neg_sim / self.temperature))
+    #     # InfoNCE loss calculation
+    #     loss_values = -pos_sim + torch.log(torch.exp(neg_sim) + torch.exp(pos_sim))
+    #     loss = loss_values.mean()
 
-        loss = torch.mean(loss_values)
+    #     return loss, pos_sim, neg_sim
 
-        return loss, pos_sim, neg_sim
+    def forward(self, anchor, positive, negative):
+        """
+        Compute the InfoNCE loss given batches of anchor, positive and negative samples.
+        Args:
+            anchor: Tensor of shape [batch_size, feature_dim].
+            positive: Tensor of shape [batch_size, feature_dim].
+            negative: Tensor of shape [batch_size, feature_dim].
+        Returns:
+            A scalar tensor representing the InfoNCE loss.
+        """
+        # Normalize the inputs (L2 norm)
+        anchor_norm = F.normalize(anchor, p=2, dim=1)
+        positive_norm = F.normalize(positive, p=2, dim=1)
+        negative_norm = F.normalize(negative, p=2, dim=1)
+
+        # Calculate cosine similarities
+        positive_similarity = torch.sum(anchor_norm * positive_norm, dim=1) / self.temperature
+        negative_similarity = torch.sum(anchor_norm * negative_norm, dim=1) / self.temperature
+
+        # Stack the similarities
+        logits = torch.cat([positive_similarity.unsqueeze(1), negative_similarity.unsqueeze(1)], dim=1)
+
+        # Targets: aiming to make the positive similarity higher, so targets are zero (index of positive samples)
+        targets = torch.zeros(logits.shape[0], dtype=torch.long, device=anchor.device)
+
+        # Calculate the cross-entropy loss
+        loss = F.cross_entropy(logits, targets)
+
+        return loss, positive_similarity, negative_similarity
 
 
 # criterion = TripletLoss(margin = margin_value)
-criterion = InfoNCE_Loss(temperature = 1.0)
+temperature = 0.2
+criterion = InfoNCE_Loss(temperature)
 
 
 # criterion = nn.TripletMarginLoss(margin=margin_value, p=2)
@@ -545,19 +616,13 @@ criterion = InfoNCE_Loss(temperature = 1.0)
 optimizer = optim.Adam(model.parameters(), lr=1e-3)
 
 num_epochs = 100
-patience = 30  # Number of epochs to wait for improvement before stopping
-min_delta = 0.001  # Minimum change to qualify as an improvement
-
-best_val_loss = float('inf')
-epochs_no_improve = 0
-early_stop = False
 
 # =============================================================================
 # UNTRAINED MODEL REPRESENTATION
 # =============================================================================
 
-# train_hard_loader = torch.utils.data.DataLoader(train_hard_dataset, batch_size = batch_size, shuffle = False)
-# model_rep_untrained = create_UMAP_plot(train_hard_loader, simple_tweetyclr, hard_indices[train_indices], model, device, 'UMAP_rep_of_model_train_region_untrained_model', saveflag = True)
+train_hard_loader = torch.utils.data.DataLoader(train_hard_dataset, batch_size = batch_size, shuffle = False)
+model_rep_untrained = create_UMAP_plot(train_hard_loader, simple_tweetyclr, hard_indices[train_indices], model, device, 'UMAP_rep_of_model_train_region_untrained_model', saveflag = True)
 
 
 # =============================================================================
@@ -573,14 +638,14 @@ def train_one_batch(model, anchor_img, positive_img, negative_img, loss_fn, opti
     anchor_emb, positive_emb, negative_emb = model(anchor_img, positive_img, negative_img)
 
     # Compute loss
-    loss, positive_dist, negative_dist, raw_losses, prop_nonzero_losses = loss_fn(anchor_emb, positive_emb, negative_emb)
+    loss, positive_similarity, negative_similarity = loss_fn(anchor_emb, positive_emb, negative_emb)
 
     # Backward pass and optimize
     optimizer.zero_grad()  # Clear previous gradients
     loss.backward()  # Compute gradients
     optimizer.step()  # Update model parameters
 
-    return loss.item(), positive_dist, negative_dist, raw_losses, prop_nonzero_losses
+    return loss.item(), positive_similarity, negative_similarity
 
 def validate_one_batch(model, anchor_img, positive_img, negative_img, loss_fn, device):
     model.eval()  # Set the model to evaluation mode
@@ -591,9 +656,9 @@ def validate_one_batch(model, anchor_img, positive_img, negative_img, loss_fn, d
         anchor_emb, positive_emb, negative_emb = model(anchor_img, positive_img, negative_img)
 
         # Compute loss
-        loss, positive_dist, negative_dist, raw_losses, prop_nonzero_losses = loss_fn(anchor_emb, positive_emb, negative_emb)
+        loss, positive_similarity, negative_similarity = loss_fn(anchor_emb, positive_emb, negative_emb)
 
-    return loss.item(), positive_dist, negative_dist, raw_losses, prop_nonzero_losses
+    return loss.item(), positive_similarity, negative_similarity
 
 def train_and_validate(model, train_loader, test_loader, loss_fn, optimizer, device):
     epoch_train_losses = []
@@ -608,72 +673,22 @@ def train_and_validate(model, train_loader, test_loader, loss_fn, optimizer, dev
     batch_neg_dist_train = []
     batch_neg_dist_val = []
 
-    batch_prop_train = []
-    batch_prop_val = []
-
     for epoch in range(num_epochs):
         print(f"Epoch {epoch+1}/{num_epochs}")
         train_losses, val_losses = [], []
 
         for (anchor_img_train, positive_img_train, negative_img_train, _), (anchor_img_val, positive_img_val, negative_img_val, _) in zip(train_loader, test_loader):
-            train_loss, train_pos_dist, train_neg_dist, train_raw_losses, train_prop = train_one_batch(model, anchor_img_train, positive_img_train, negative_img_train, loss_fn, optimizer, device)
-            val_loss, val_pos_dist, val_neg_dist, val_raw_losses, val_prop = validate_one_batch(model, anchor_img_val, positive_img_val, negative_img_val, loss_fn, device)
+            train_loss, pos_sim_train, neg_sim_train = train_one_batch(model, anchor_img_train, positive_img_train, negative_img_train, loss_fn, optimizer, device)
+            val_loss, pos_sim_val, neg_sim_val = validate_one_batch(model, anchor_img_val, positive_img_val, negative_img_val, loss_fn, device)
             
             train_losses.append(train_loss)
             val_losses.append(val_loss)
 
-            batch_train_losses.append(train_raw_losses)
-            batch_val_losses.append(val_raw_losses)
+            batch_pos_dist_train.append(pos_sim_train)
+            batch_pos_dist_val.append(pos_sim_val)
 
-            batch_pos_dist_train.append(train_pos_dist)
-            batch_pos_dist_val.append(val_pos_dist)
-
-            batch_neg_dist_train.append(train_neg_dist)
-            batch_neg_dist_val.append(val_neg_dist)
-
-            batch_prop_train.append(train_prop)
-            batch_prop_val.append(val_prop)
-
-
-        # I want to visualize the positive distance distributions for training
-        plt.figure()
-        plt.hist(batch_pos_dist_train[0], alpha = 0.7, label = 'First Model Update')
-        plt.hist(batch_pos_dist_train[-1], alpha = 0.7, label = 'Last Model Update')
-        plt.legend()
-        plt.xlabel("Euclidean Distance")
-        plt.title("Positive Distance Distribution for Training Data")
-        plt.savefig(f'{simple_tweetyclr.folder_name}/epoch_{epoch}_positive_distance_dist_train.png')
-        plt.show()
-
-        # I want to visualize the negative distance distributions for training
-        plt.figure()
-        plt.hist(batch_neg_dist_train[0], alpha = 0.7, label = 'First Model Update')
-        plt.hist(batch_neg_dist_train[-1], alpha = 0.7, label = 'Last Model Update')
-        plt.legend()
-        plt.xlabel("Euclidean Distance")
-        plt.title("Negative Distance Distribution for Training Data")
-        plt.savefig(f'{simple_tweetyclr.folder_name}/epoch_{epoch}_negative_distance_dist_train.png')
-        plt.show()
-
-        # I want to visualize the positive distance distributions for validation
-        plt.figure()
-        plt.hist(batch_pos_dist_val[0], alpha = 0.7, label = 'First Model Update')
-        plt.hist(batch_pos_dist_val[-1], alpha = 0.7, label = 'Last Model Update')
-        plt.legend()
-        plt.xlabel("Euclidean Distance")
-        plt.title("Positive Distance Distribution for Validation Data")
-        plt.savefig(f'{simple_tweetyclr.folder_name}/epoch_{epoch}_positive_distance_dist_val.png')
-        plt.show()
-
-        # I want to visualize the negative distance distributions for validation
-        plt.figure()
-        plt.hist(batch_neg_dist_val[0], alpha = 0.7, label = 'First Model Update')
-        plt.hist(batch_neg_dist_val[-1], alpha = 0.7, label = 'Last Model Update')
-        plt.legend()
-        plt.xlabel("Euclidean Distance")
-        plt.title("Negative Distance Distribution for Validation Data")
-        plt.savefig(f'{simple_tweetyclr.folder_name}/epoch_{epoch}_negative_distance_dist_val.png')
-        plt.show()
+            batch_neg_dist_train.append(neg_sim_train)
+            batch_neg_dist_val.append(neg_sim_val)
         
         avg_train_loss = sum(train_losses) / len(train_losses)
         avg_val_loss = sum(val_losses) / len(val_losses)
@@ -684,6 +699,55 @@ def train_and_validate(model, train_loader, test_loader, loss_fn, optimizer, dev
         print(f"Training Loss: {avg_train_loss:.4f}, Validation Loss: {avg_val_loss:.4f}")
 
         if epoch % 5 == 0:
+
+            train_batch_loss_list = [item for sublist in epoch_train_losses for item in sublist]
+            val_batch_loss_list = [item for sublist in epoch_val_losses for item in sublist]
+
+            plt.figure()
+            plt.plot(train_batch_loss_list, label = 'Training Loss')
+            plt.plot(val_batch_loss_list, label = 'Validation Loss')
+            plt.legend()
+            plt.xlabel("Batch Number")
+            plt.ylabel(f'Raw Cross Entropy Loss for Batches at Epoch {epoch}')
+            plt.savefig(f'{simple_tweetyclr.folder_name}/loss_curve_at_epoch_{epoch}.png')
+
+
+            # I want to visualize the positive distance distributions for training
+            # plt.figure()
+            # plt.hist(batch_pos_dist_train[0].clone().detach().cpu().numpy(), alpha = 0.7, label = 'First Model Update')
+            # plt.hist(batch_pos_dist_train[-1].clone().detach().cpu().numpy(), alpha = 0.7, label = 'Last Model Update')
+            # plt.legend()
+            # plt.xlabel("Euclidean Distance")
+            # plt.title("Positive Distance Distribution for Training Data")
+            # plt.savefig(f'{simple_tweetyclr.folder_name}/epoch_{epoch}_positive_distance_dist_train.png')
+
+            # # I want to visualize the negative distance distributions for training
+            # plt.figure()
+            # plt.hist(batch_neg_dist_train[0].clone().detach().cpu().numpy(), alpha = 0.7, label = 'First Model Update')
+            # plt.hist(batch_neg_dist_train[-1].clone().detach().cpu().numpy(), alpha = 0.7, label = 'Last Model Update')
+            # plt.legend()
+            # plt.xlabel("Euclidean Distance")
+            # plt.title("Negative Distance Distribution for Training Data")
+            # plt.savefig(f'{simple_tweetyclr.folder_name}/epoch_{epoch}_negative_distance_dist_train.png')
+
+            # # I want to visualize the positive distance distributions for validation
+            # plt.figure()
+            # plt.hist(batch_pos_dist_val[0].clone().detach().cpu().numpy(), alpha = 0.7, label = 'First Model Update')
+            # plt.hist(batch_pos_dist_val[-1].clone().detach().cpu().numpy(), alpha = 0.7, label = 'Last Model Update')
+            # plt.legend()
+            # plt.xlabel("Euclidean Distance")
+            # plt.title("Positive Distance Distribution for Validation Data")
+            # plt.savefig(f'{simple_tweetyclr.folder_name}/epoch_{epoch}_positive_distance_dist_val.png')
+
+            # # I want to visualize the negative distance distributions for validation
+            # plt.figure()
+            # plt.hist(batch_neg_dist_val[0].clone().detach().cpu().numpy(), alpha = 0.7, label = 'First Model Update')
+            # plt.hist(batch_neg_dist_val[-1].clone().detach().cpu().numpy(), alpha = 0.7, label = 'Last Model Update')
+            # plt.legend()
+            # plt.xlabel("Euclidean Distance")
+            # plt.title("Negative Distance Distribution for Validation Data")
+            # plt.savefig(f'{simple_tweetyclr.folder_name}/epoch_{epoch}_negative_distance_dist_val.png')
+
             train_hard_loader = torch.utils.data.DataLoader(train_hard_dataset, batch_size = batch_size, shuffle = False)
             model_rep_state = create_UMAP_plot(train_hard_loader, simple_tweetyclr, hard_indices[train_indices], model, device, f'UMAP_rep_of_model_train_region_model_at_epoch_{epoch}', epoch, saveflag = True)
 
@@ -916,7 +980,7 @@ experiment_params = {
     "Forward_Once_Method": forward_once_method_lines,
     "Dataloader_Shuffle": shuffle_status, 
     "Noise_Level": noise_level, 
-    "Margin_Value": margin_value
+    "Temperature": temperature
     }
 
 import json

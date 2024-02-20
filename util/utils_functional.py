@@ -12,13 +12,13 @@ import base64
 import io
 from io import BytesIO
 
-def create_dataloader(data_values, batch_size, label_values = None, shuffle_status = True):
+def create_dataloader(data_values, batch_size, label_values = None, indices = None, shuffle_status = True):
     '''
     Create dataloaders when we want to evaluate the model on the left out regions. This can also be used for creating images for Bokeh plots
 
     '''
 
-    dataset = TensorDataset(torch.tensor(data_values), torch.tensor(label_values))
+    dataset = TensorDataset(torch.tensor(data_values), torch.tensor(label_values), torch.tensor(indices))
 
     data_loader = torch.utils.data.DataLoader(dataset, batch_size = batch_size, shuffle = shuffle_status)
 
@@ -110,7 +110,7 @@ def create_UMAP_plot(data_loader, simple_tweetyclr, indices_of_interest, model, 
     model_rep = []
     model = model.to('cpu')
     with torch.no_grad():
-        for batch_idx, (img, idx) in enumerate(data_loader):
+        for batch_idx, (img, lab, idx) in enumerate(data_loader):
             data = img.to(torch.float32)
             
             output = model.module.forward_once(data)
@@ -133,7 +133,7 @@ def create_UMAP_plot(data_loader, simple_tweetyclr, indices_of_interest, model, 
     
     model = model.to(device).to(torch.float32)
 
-    return model_rep
+    return model_rep_stacked
             
             
 def creating_negatives_set(embed, hard_indices):
