@@ -485,28 +485,59 @@ if torch.cuda.device_count() > 1:
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model.to(device).to(torch.float32)
 
-margin_value = 10.0
+# margin_value = 10.0
 
-class TripletLoss(nn.Module):
-    def __init__(self, margin=1.0):
-        super(TripletLoss, self).__init__()
-        self.margin = margin
+# class TripletLoss(nn.Module):
+#     def __init__(self, margin=1.0):
+#         super(TripletLoss, self).__init__()
+#         self.margin = margin
         
-    def calc_euclidean(self, x1, x2):
-        return (x1 - x2).pow(2).sum(1)
+#     def calc_euclidean(self, x1, x2):
+#         return (x1 - x2).pow(2).sum(1)
     
-    def forward(self, anchor: torch.Tensor, positive: torch.Tensor, negative: torch.Tensor) -> torch.Tensor:
-        distance_positive = self.calc_euclidean(anchor, positive)
-        distance_negative = self.calc_euclidean(anchor, negative)
-        raw_losses = distance_positive - distance_negative + self.margin
-        losses = torch.relu(raw_losses)
+#     def forward(self, anchor: torch.Tensor, positive: torch.Tensor, negative: torch.Tensor) -> torch.Tensor:
+#         distance_positive = self.calc_euclidean(anchor, positive)
+#         distance_negative = self.calc_euclidean(anchor, negative)
+#         raw_losses = distance_positive - distance_negative + self.margin
+#         losses = torch.relu(raw_losses)
 
-        prop_nonzero_losses = torch.mean((losses > 0).float())
+#         prop_nonzero_losses = torch.mean((losses > 0).float())
 
-        return losses.mean(), distance_positive.clone().detach().cpu().numpy(), distance_negative.clone().detach().cpu().numpy(), raw_losses, prop_nonzero_losses.clone().detach().cpu().numpy()
+#         return losses.mean(), distance_positive.clone().detach().cpu().numpy(), distance_negative.clone().detach().cpu().numpy(), raw_losses, prop_nonzero_losses.clone().detach().cpu().numpy()
+
+class InfoNCE_Loss(nn.Module):
+    def __init__(self, temperature=1.0):
+        super(InfoNCE_Loss, self).__init__()
+        self.temperature = temperature
+
+    def normalize(self, feat):
+        feat_l2 = feat / torch.norm(feat, p=2, keepdim = True)
+        return feat_l2
+    
+    
+    def calc_cos_sim(self, feat1_l2, feat2_l2):
+
+        cos_sim = torch.sum(feat1_l2 * feat2_l2, dim=1)
+
+        return cos_sim 
+    
+    def forward(self, anchor_feat, positive_feat, negative_feat):
+        anchor_l2 = self.normalize(anchor_feat)
+        positive_l2 = self.normalize(positive_feat)
+        negative_l2 = self.normalize(negative_feat)
+
+        pos_sim = self.calc_cos_sim(anchor_l2, positive_l2)
+        neg_sim = self.calc_cos_sim(anchor_l2, negative_l2)
+
+        loss_values = -1*torch.log(torch.exp(pos_sim/self.temperature) / torch.exp(neg_sim / self.temperature))
+
+        loss = torch.mean(loss_values)
+
+        return loss, pos_sim, neg_sim
 
 
-criterion = TripletLoss(margin = margin_value)
+# criterion = TripletLoss(margin = margin_value)
+criterion = InfoNCE_Loss(temperature = 1.0)
 
 
 # criterion = nn.TripletMarginLoss(margin=margin_value, p=2)
@@ -655,9 +686,6 @@ def train_and_validate(model, train_loader, test_loader, loss_fn, optimizer, dev
         if epoch % 5 == 0:
             train_hard_loader = torch.utils.data.DataLoader(train_hard_dataset, batch_size = batch_size, shuffle = False)
             model_rep_state = create_UMAP_plot(train_hard_loader, simple_tweetyclr, hard_indices[train_indices], model, device, f'UMAP_rep_of_model_train_region_model_at_epoch_{epoch}', epoch, saveflag = True)
-
-
-
 
 train_and_validate(model, train_loader, test_loader, criterion, optimizer, device)
 

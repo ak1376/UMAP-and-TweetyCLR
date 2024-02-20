@@ -220,6 +220,44 @@ def infonce_loss_function(feats, temperature):
     neg_grand_mean/=batch_size
     
     return nll_grand_mean, pos_sim, neg_sim
+
+
+def simple_infonce_loss_function(anchor_feats, positive_feats, negative_feats, temperature):
+
+    # Step 1: L2 Normalize the feats vectors
+    anchor_l2 = anchor_feats / torch.norm(anchor_feats, p=2, keepdim = True)
+    positive_l2 = positive_feats / torch.norm(positive_feats, p=2, keepdim = True)
+    negative_l2 = negative_feats / torch.norm(negative_feats, p = 2, keepdim = True)
+
+    
+    batch_pos_sim = torch.sum(anchor_l2 * positive_l2, dim=1)
+    batch_neg_sim = torch.sum(anchor_l2 * negative_l2, dim=1)
+
+    loss_values = -1*torch.log(torch.exp(batch_pos_sim/temperature) / torch.exp(batch_neg_sim / temperature))
+
+    loss = torch.mean(loss_values)
+
+    return loss, batch_pos_sim, batch_neg_sim
+
+
+
+
+    
+    
+    
+    
+
+
+
+
+
+
+
+
+
+
+
+
     
 
 
