@@ -19,8 +19,8 @@ filepath = '/home/akapoor'
 # filepath = '/Users/AnanyaKapoor'
 import os
 os.chdir(f'{filepath}/Dropbox (University of Oregon)/Kapoor_Ananya/01_Projects/01_b_Canary_SSL/UMAP_and_TweetyCLR')
-from util.utils_Dataset_Creation import *
-from util.utils_functional import *
+from src.utils_Dataset_Creation import *
+from src.utils_functional import *
 import torch.nn as nn
 import torch.nn.functional as F
 import os
@@ -46,15 +46,14 @@ plt.rcParams.update({'font.size': 20})
 plt.rcParams['figure.figsize'] = [15, 15]  # width and height should be in inches
 
 # Specify the necessary directories 
-bird_dir = f'{filepath}/Dropbox (University of Oregon)/Kapoor_Ananya/01_Projects/01_a_Rotations/Gardner_Lab/Canary_Data/llb16_data_matrices/'
-audio_files = bird_dir+'llb3_songs'
-directory = bird_dir+ 'Python_Files'
+bird_dir = f'{filepath}/Desktop/Juvenile_ZF'
+directory = f'{bird_dir}/Python_Objects/train'
 
 # Identify the upstream location where the results will be saved. 
 analysis_path = f'{filepath}/Dropbox (University of Oregon)/Kapoor_Ananya/01_Projects/01_b_Canary_SSL/TweetyCLR_Repo/'
 
 # # Parameters we set
-num_spec = 1452
+num_spec = 1400
 window_size = 100
 stride = 100
 
@@ -63,6 +62,9 @@ stride = 100
 # I want to have a setting where the user is asked whether they want to log an
 # experiment. The user should also provide a brief text description of what the
 # experiment is testing (like a Readme file)
+
+
+# Rewrite this to be a bit more professional
 
 log_experiment = True
 if log_experiment == True:
@@ -79,31 +81,26 @@ all_songs_data = [f'{directory}/{element}' for element in files if '.npz' in ele
 all_songs_data.sort()
 
 # Identity any low and high pass filtering 
-masking_freq_tuple = (500, 7000)
+masking_freq_tuple = (0, 100000) # TODO: Find a better way to select all frequencies
 
 # Dimensions of the spec slices for analysis 
-spec_dim_tuple = (window_size, 151)
+spec_dim_tuple = (window_size, 257)
 
 # Ground truth label coloring
-with open(f'{filepath}/Dropbox (University of Oregon)/Kapoor_Ananya/01_Projects/01_b_Canary_SSL/TweetyCLR_End_to_End/Supervised_Task/category_colors.pkl', 'rb') as file:
-    category_colors = pickle.load(file)
+# with open(f'{filepath}/Dropbox (University of Oregon)/Kapoor_Ananya/01_Projects/01_b_Canary_SSL/TweetyCLR_End_to_End/Supervised_Task/category_colors.pkl', 'rb') as file:
+#     category_colors = pickle.load(file)
 
 # In[1]: Creating Dataset
 
 # Object that has a bunch of helper functions and does a bunch of useful things 
-simple_tweetyclr_experiment_1 = Tweetyclr(num_spec, window_size, stride, folder_name, all_songs_data, masking_freq_tuple, spec_dim_tuple, category_colors)
+simple_tweetyclr_experiment_1 = Tweetyclr(num_spec, window_size, stride, folder_name, all_songs_data, masking_freq_tuple, spec_dim_tuple)
 
 simple_tweetyclr = simple_tweetyclr_experiment_1
 
 # Finds the sliding windows
-# simple_tweetyclr.first_time_analysis()
-
-# with open(f'{analysis_path}Num_Spectrograms_{num_spec}_Window_Size_{window_size}_Stride_{stride}/simple_tweetyclr.pkl', 'wb') as file:
-#     pickle.dump(simple_tweetyclr, file)
-
-with open(f'{analysis_path}Num_Spectrograms_{num_spec}_Window_Size_{window_size}_Stride_{stride}/simple_tweetyclr.pkl', 'rb') as file:
-    simple_tweetyclr = pickle.load(file)
-
+stacked_specs, stacked_labels = simple_tweetyclr.extracting_data()
+stacked_windows = simple_tweetyclr.apply_windowing(stacked_specs.T, 100, 100)
+stacked_labels = simple_tweetyclr.apply_windowing(stacked_labels, 100, 100)
 
 simple_tweetyclr.folder_name = folder_name
 
@@ -115,16 +112,11 @@ if log_experiment == True:
     with open(f'{folder_name}/experiment_readme.txt', 'w') as file:
         file.write(exp_descp)
 
-
-stacked_windows = simple_tweetyclr.stacked_windows.copy()
-
-stacked_windows.shape = (stacked_windows.shape[0], 100, 151)
+stacked_windows.shape = (stacked_windows.shape[0],1, 100, 256)
 
 # stacked_windows[:, :, :] = simple_tweetyclr.stacked_labels_for_window[:, :, None]
 
-stacked_windows.shape = (stacked_windows.shape[0],1, 100, 151) 
-
-stacked_labels_for_window = simple_tweetyclr.stacked_labels_for_window.copy()
+stacked_labels_for_window = np.squeeze(stacked_labels.copy())
 
 batch_size = 64
 
@@ -133,8 +125,8 @@ total_dataset, total_dataloader = create_dataloader(stacked_windows, batch_size,
 # Need to compute the UMAP embedding
 reducer = umap.UMAP(metric = 'cosine', random_state=295)
 
-# embed = reducer.fit_transform(simple_tweetyclr.stacked_windows)
-embed = np.load(f'{analysis_path}Num_Spectrograms_{num_spec}_Window_Size_{window_size}_Stride_{stride}/embed.npy')
+embed = reducer.fit_transform(simple_tweetyclr.stacked_windows)
+# embed = np.load(f'{analysis_path}Num_Spectrograms_{num_spec}_Window_Size_{window_size}_Stride_{stride}/embed.npy')
 # Preload the embedding 
 simple_tweetyclr.umap_embed_init = embed
 
@@ -485,7 +477,7 @@ class Encoder(nn.Module):
         
         # LayerNorm + Dropout
         x = self.dropout(self.relu(self.ln1(self.conv1(x))))
-        x = self.dropout(self.relu(self.ln2(self.conv2(x))))
+        x = self.dropout(self.relu(self.ln2(selfalidation, hard_dataloader_validation = create_dataloader(hard_dataset.conv2(x))))
         x = self.dropout(self.relu(self.ln3(self.conv3(x))))
         x = self.dropout(self.relu(self.ln4(self.conv4(x))))
         x = self.dropout(self.relu(self.ln5(self.conv5(x))))
