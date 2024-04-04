@@ -1,9 +1,9 @@
-from loss import InfoNCE
+from loss import TripletLoss
 import torch
 import numpy as np
 
 class Trainer:
-    def __init__(self, model, train_loader, validation_loader, optimizer, device, max_steps, tau, early_stopping = True, eval_interval = 500, trailing_avg_window=1000, patience = 8) -> None:
+    def __init__(self, model, train_loader, validation_loader, optimizer, device, max_steps, margin = 1.0, early_stopping = True, eval_interval = 500, trailing_avg_window=1000, patience = 8) -> None:
         self.model = model
         self.train_loader = train_loader 
         self.validation_loader = validation_loader
@@ -12,7 +12,7 @@ class Trainer:
         self.trailing_avg_window = trailing_avg_window
         self.patience = patience
         self.max_steps = max_steps
-        self.tau = tau
+        self.margin = margin
         self.eval_interval = eval_interval
         self.early_stopping = early_stopping
 
@@ -20,7 +20,7 @@ class Trainer:
         self.model.eval()
         with torch.no_grad():
             anchor_rep, pos_rep, neg_rep = self.model.forward(anchor_validation, pos_sample_validation, neg_sample_validation)
-            loss = InfoNCE(anchor_rep, pos_rep, neg_rep, tau = self.tau)
+            loss = TripletLoss(anchor_rep, pos_rep, neg_rep, margin = self.margin)
 
             return loss.item()
 
@@ -45,12 +45,14 @@ class Trainer:
         while step < self.max_steps:
             
             try:
-                anchor_train, pos_sample_train, neg_sample_train, idx_train = next(iter(train_iter))
-                anchor_validation, pos_sample_validation, neg_sample_validation, idx_validation = next(iter(validation_iter))
+                anchor_train, pos_sample_train, neg_sample_train, idx_train = next(train_iter)
+                anchor_validation, pos_sample_validation, neg_sample_validation, idx_validation = next(validation_iter)
         
             except Exception as e:
-                # This block will execute if there is any exception in the try block
-                print(f"An error occurred: {e}")
+                train_iter = iter(self.train_loader)
+                validation_iter = iter(self.validation_loader)
+                step = 0
+
                 continue
 
             anchor_train = anchor_train.to(self.device).to(torch.float32)
@@ -66,7 +68,7 @@ class Trainer:
 
             anchor_rep, pos_rep, neg_rep = self.model.forward(anchor_train, pos_sample_train, neg_sample_train)
 
-            loss = InfoNCE(anchor_rep, pos_rep, neg_rep, tau = self.tau)
+            loss = TripletLoss(anchor_rep, pos_rep, neg_rep, margin = self.margin)
 
             self.optimizer.zero_grad()
             loss.backward()

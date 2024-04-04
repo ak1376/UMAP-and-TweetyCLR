@@ -17,8 +17,8 @@ config = {
     'train_directory': '/home/akapoor/Desktop/Canary_Training',
     'validation_directory': '/home/akapoor/Desktop/Canary_Testing',
     'random_seed': 295, 
-    'num_spec_train': 100, 
-    'num_spec_validation': 10,
+    'num_spec_train': 50, 
+    'num_spec_validation': 50,
     'masking_freq_tuple': (500, 7000),
     'spec_dim_tuple' : (100, 151),
     'window_size': 100, 
@@ -29,7 +29,7 @@ config = {
     'fc_dimensionality': 256, 
     'dropout_prop': 0.1, 
     'max_steps': 10000, 
-    'tau': 1.0, 
+    'margin': 1.0, 
     'device': 'cuda'
 }
 
